@@ -9,13 +9,11 @@ struct SendableImage: @unchecked Sendable {
 }
 
 enum Stage: Int, CaseIterable {
-    case input, tune, verify, export
+    case input, export
 
     var title: String {
         switch self {
         case .input: return "Input"
-        case .tune: return "Tune"
-        case .verify: return "Verify"
         case .export: return "Export"
         }
     }
@@ -51,7 +49,8 @@ final class AppModel {
     // MARK: Render
 
     var config = RenderConfig()
-    var choreography: Choreography = .structureFirst
+    /// Radial by default: the burst's ring is the front of this order.
+    var choreography: Choreography = .radial
     private(set) var plan: RenderPlan?
     private(set) var isRendering = false
     private(set) var renderError: String?
@@ -71,8 +70,12 @@ final class AppModel {
     private(set) var generatePhase: GeneratePhase = .idle
     /// The plan on the print.
     private(set) var generatingPlan: RenderPlan?
-    /// Clock origin for the print timeline.
+    /// Clock origin for the print timeline — and, before it, for the wait.
     private(set) var printStart: Date = .now
+    /// How far the wait had swelled the drop when the print began.
+    private(set) var generateCharge: Double = 0
+    /// True from the moment the card touches down. The controls arrive on it.
+    private(set) var cardLanded = false
 
     // MARK: Export
 
@@ -236,6 +239,7 @@ final class AppModel {
 
         generatingPlan = withdrawn.plan
         printStart = .now
+        cardLanded = false
         generatePhase = .retracting
         Task { [weak self] in
             // A soft tick as the drop rejoins the island.
@@ -250,6 +254,19 @@ final class AppModel {
         }
     }
 
+    /// Takes the card back so the inputs can be edited. The logo and the URL
+    /// stay; the result goes, so the next Generate runs the loop again.
+    func withdraw() {
+        discardGeneratedResult()
+    }
+
+    /// True while the card on the page is the one the loop proved. Any change
+    /// to the controls re-renders a fast, unproven preview until Verify runs.
+    var isVerified: Bool {
+        guard let plan, let verifiedRender else { return false }
+        return plan.id == verifiedRender.plan.id
+    }
+
     var currentPalette: Palette {
         ExportVariant.Kind.brand.palette(brand: brandColour)
     }
@@ -258,11 +275,11 @@ final class AppModel {
 
     /// Renders, verifies, then lets the island drop the result onto the page.
     ///
-    /// The verify loop runs first, and a small drop hangs from the island while
-    /// it does, because the loop's duration depends on the artwork and a fixed
+    /// The verify loop runs first, and the drop swells from the island while it
+    /// does, because the loop's duration depends on the artwork and a fixed
     /// animation cannot cover a variable wait honestly. Once there is a verified
-    /// symbol, one continuous timeline lets the drop go and spreads it into the
-    /// card.
+    /// symbol, one continuous timeline lets the drop go, spreads it into the
+    /// card, and bursts the symbol onto it.
     ///
     /// Nothing navigates. The card lands in the frame this page already keeps for
     /// it, and the page becomes the result.
@@ -274,6 +291,8 @@ final class AppModel {
         let config = config
         let palette = currentPalette
 
+        printStart = .now
+        cardLanded = false
         generatePhase = .working
         Haptics.impact(.soft, intensity: 0.5)
 
@@ -293,20 +312,35 @@ final class AppModel {
         self.config = result.config
         generatingPlan = result.plan
 
+        // The wait swelled the drop; the print picks up from wherever it got to.
+        generateCharge = LiquidTimeline.charge(afterWaiting: Date.now.timeIntervalSince(printStart))
         printStart = .now
         generatePhase = .printing
 
-        // The haptics follow the liquid: a soft tick as the neck snaps, a firmer
-        // one as the card lands, and the success once the symbol has developed.
-        let snap = LiquidTimeline.breakAt * LiquidTimeline.duration
-        let land = LiquidTimeline.landAt * LiquidTimeline.duration
-        try? await Task.sleep(for: .seconds(snap))
+        // The haptics follow the liquid: a soft tick as the neck snaps, a firm
+        // one as the card lands, a ratchet as the burst crosses the card, a
+        // harder one as the finders punch in, and the success once it is done.
+        await sleep(untilBeat: LiquidTimeline.breakAt)
         guard generatePhase == .printing else { return }
         Haptics.impact(.soft, intensity: 0.55)
-        try? await Task.sleep(for: .seconds(land - snap))
+
+        await sleep(untilBeat: LiquidTimeline.landAt)
         guard generatePhase == .printing else { return }
-        Haptics.impact(.rigid, intensity: 0.7)
-        try? await Task.sleep(for: .seconds(LiquidTimeline.duration - land))
+        Haptics.impact(.rigid, intensity: 0.75)
+        cardLanded = true
+
+        let burst = LiquidTimeline.developAt
+        let burstSpan = LiquidTimeline.developEnd - LiquidTimeline.developAt
+        for (share, intensity) in [(0.30, 0.45), (0.55, 0.6)] {
+            await sleep(untilBeat: burst + share * burstSpan)
+            guard generatePhase == .printing else { return }
+            Haptics.impact(.light, intensity: intensity)
+        }
+        await sleep(untilBeat: burst + 0.8 * burstSpan)
+        guard generatePhase == .printing else { return }
+        Haptics.impact(.medium, intensity: 0.9)
+
+        await sleep(untilBeat: 1)
         guard generatePhase == .printing else { return }
 
         // The page takes the card over at exactly the frame the overlay left it.
@@ -314,6 +348,17 @@ final class AppModel {
         generatingPlan = nil
         generatePhase = .idle
         Haptics.success()
+    }
+
+    /// Sleeps until a beat of the print, given as a fraction of its duration.
+    /// Measured from the print's start rather than accumulated, so the haptics
+    /// stay on the animation however long each wait actually took.
+    private func sleep(untilBeat beat: Double) async {
+        let due = printStart.addingTimeInterval(beat * LiquidTimeline.duration)
+        let remaining = due.timeIntervalSinceNow
+        if remaining > 0 {
+            try? await Task.sleep(for: .seconds(remaining))
+        }
     }
 
     // MARK: - Verify intents
@@ -334,8 +379,10 @@ final class AppModel {
             verification = result.report
             config = result.config
             resolveToken = UUID()
+            Haptics.success()
         } catch {
             renderError = error.localizedDescription
+            Haptics.warning()
         }
     }
 
@@ -413,18 +460,11 @@ final class AppModel {
 
     // MARK: - Navigation
 
+    /// Only a proven card goes to export; the page's Verify button gates it.
     func advance() {
         switch stage {
         case .input:
-            stage = .tune
-            if verifiedRender == nil {
-                schedulePreview(debounce: .zero, animate: true)
-            } else {
-                resolveToken = UUID()
-            }
-        case .tune:
-            stage = .verify
-        case .verify:
+            guard isVerified else { return }
             stage = .export
         case .export:
             break
@@ -447,6 +487,8 @@ final class AppModel {
         verifiedRender = nil
         variants = []
         exportBundle = nil
+        cardLanded = false
+        generateCharge = 0
         stage = .input
     }
 }

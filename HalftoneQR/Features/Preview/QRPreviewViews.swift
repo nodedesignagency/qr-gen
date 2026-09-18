@@ -16,6 +16,9 @@ struct QRCard: View {
     var choreography: Choreography = .structureFirst
     var isScanning: Bool = false
     var duration: Double = 1.15
+    /// The page's card takes the radius the printed card landed with, so the
+    /// hand-over is invisible; elsewhere the radius follows the card's size.
+    var cornerRadius: CGFloat? = nil
 
     @State private var startedAt: Date?
     @State private var playedKey: UUID?
@@ -80,7 +83,7 @@ struct QRCard: View {
 
             if isScanning { ScanSweep() }
         }
-        .clipShape(RoundedRectangle(cornerRadius: side * 0.085, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius ?? side * 0.085, style: .continuous))
     }
 
     @ViewBuilder
@@ -100,13 +103,18 @@ struct QRCard: View {
 
 /// Module-resolution live drawing.
 ///
-/// Cells are grouped into a handful of scale buckets and each bucket is filled as
-/// a single path, so a 61-module symbol costs a few path fills per frame instead
-/// of several thousand.
+/// Cells are grouped by how far through their landing they are, and each group
+/// is filled as a single path, so a 61-module symbol costs a few path fills per
+/// frame instead of several thousand. The grouping is also what lets the burst
+/// colour a module by its heat without a fill per module.
 struct ModuleResolveCanvas: View {
     let plan: RenderPlan
     let progress: Double
     let choreography: Choreography
+    /// When set, modules land hot in this colour and cool to the ink, and a
+    /// radial order draws its front as a ring. The generate animation's burst;
+    /// the preview and the export leave it nil.
+    var burst: RGB? = nil
 
     private static let buckets = 10
 
@@ -134,7 +142,7 @@ struct ModuleResolveCanvas: View {
                     // Quantised overshoot, matching the exported animation exactly.
                     let stepped = (raw * 4).rounded(.down) / 4
                     let landed = stepped < 0.75 ? stepped * 1.12 : 1.12 - (stepped - 0.75) * 0.48
-                    let bucket = min(Int(landed * Double(Self.buckets - 1)), Self.buckets - 1)
+                    let bucket = min(Int(raw * Double(Self.buckets - 1)), Self.buckets - 1)
                     let blockSize = landed * scale
                     let cx = (plan.quietZone + Double(x) + 0.5) * scale
                     let cy = (plan.quietZone + Double(y) + 0.5) * scale
@@ -143,9 +151,32 @@ struct ModuleResolveCanvas: View {
                 }
             }
 
-            let ink = plan.palette.ink.swiftUIColor
-            for path in paths where !path.isEmpty {
-                context.fill(path, with: .color(ink))
+            let ink = plan.palette.ink
+            let hot = burst?.mixed(with: .paper, amount: 0.55)
+            for (index, path) in paths.enumerated() where !path.isEmpty {
+                var colour = ink
+                if let hot {
+                    // Hot as it lands, the ink once it has settled.
+                    let heat = pow(1 - Double(index) / Double(Self.buckets - 1), 1.5)
+                    colour = ink.mixed(with: hot, amount: heat)
+                }
+                context.fill(path, with: .color(colour.swiftUIColor))
+            }
+
+            // The front of a radial burst, as a ring: the delay landing right
+            // now, turned back into a radius. It runs out through the corners.
+            if let burst, choreography == .radial, progress > 0.001, progress < 0.999 {
+                let front = max((progress - window / 2) / span, 0)
+                let radius = front * 0.7071 * Double(count - 1) * scale
+                let box = CGRect(x: size.width / 2 - radius, y: size.height / 2 - radius,
+                                 width: radius * 2, height: radius * 2)
+                let ring = Path(ellipseIn: box)
+                let tint = burst.swiftUIColor
+                context.drawLayer { layer in
+                    layer.addFilter(.blur(radius: 9))
+                    layer.stroke(ring, with: .color(tint.opacity(0.55)), lineWidth: 16)
+                }
+                context.stroke(ring, with: .color(tint.opacity(0.9)), lineWidth: 1.5)
             }
         }
     }

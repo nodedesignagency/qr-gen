@@ -4,11 +4,11 @@ import UIKit
 /// Where the generate sequence has got to.
 enum GeneratePhase: Equatable {
     case idle
-    /// Rendering and verifying. A small drop hangs from the island while it waits.
+    /// Rendering and verifying. A drop swells from the island while it waits.
     case working
     /// The drop is letting go and spreading into the card, on one clock.
     case printing
-    /// The card is being drawn back into the island, because its inputs changed.
+    /// The card is being drawn back into the island.
     case retracting
 
     var isRunning: Bool { self != .idle }
@@ -125,20 +125,25 @@ private func spring(_ x: Double, overshoot: Double) -> Double {
 /// pure function of `t`, which is what makes the sequence scrubbable — and lets
 /// it run backwards to withdraw the card when its inputs change.
 ///
-/// Three overlapping windows:
+/// Four overlapping windows:
 ///
-/// 1. **Swell.** The island's lower edge bulges, and the bulge hangs into a
-///    drop. The join is a pair of fillets tangent to both the edge and the
-///    drop — the surface-tension shape — and the fillet radius is what sets
-///    how far the shoulders spread.
-/// 2. **Stretch and let go.** The drop pulls into a pill and the fillets shrink
-///    until the neck is thinner than `minimumNeck` and snaps. What the island
-///    keeps springs back. The colour runs from the island's black to paper down
-///    the drop as it goes, so it leaves as the card, not as a piece of island.
+/// 1. **Charge.** While the app is still verifying, the island's lower edge
+///    bulges a little further with every moment it works, and its edge glows in
+///    the artwork's colour. The wait reads as pressure building, not a pause.
+/// 2. **Swell, stretch, let go.** The bulge hangs into a drop, the drop pulls
+///    into a pill, and the fillets joining it to the island — the
+///    surface-tension shape — shrink until the neck is thinner than
+///    `minimumNeck` and snaps. What the island keeps springs back; two satellite
+///    droplets chase the card and are taken into its edge. The colour runs from
+///    the island's black to paper down the drop as it goes.
 /// 3. **Spread.** The freed drop falls and spreads into the card: its width
-///    first, then its lower edge, each on its own spring. That is what makes it
-///    read as liquid settling rather than a rectangle being scaled. The symbol
-///    develops as the card lands.
+///    first, then its lower edge, each on its own spring, with a small pitch as
+///    the lower edge overshoots and lands. That is what makes it read as liquid
+///    settling rather than a rectangle being scaled.
+/// 4. **Burst.** The symbol develops as a shockwave from the card's centre: a
+///    ring in the artwork's colour sweeps outward and each module snaps in as
+///    it passes, hot, and cools to the ink. The finders are at the corners, so
+///    they land last.
 ///
 /// Tuned in `Tools/liquid_proto.py`, which draws the same geometry frame by
 /// frame; the constants here are the ones that were read off it.
@@ -147,6 +152,8 @@ enum LiquidTimeline {
     static let duration: TimeInterval = 2.0
     /// The withdraw is quicker: the modules leave, then the card is pulled back.
     static let retractDuration: TimeInterval = 0.9
+    /// How long the wait takes to swell the drop all the way.
+    static let chargeDuration: TimeInterval = 1.6
 
     // Beats, as fractions of `duration`.
     static let swellEnd = 0.10
@@ -155,14 +162,26 @@ enum LiquidTimeline {
     static let breakAt = 0.137
     static let landAt = 0.55
     /// When the real card view takes over from the drawn blob.
-    static let handoverAt = 0.38
+    static let handoverAt = 0.34
     static let handoverWidth = 0.05
-    static let developAt = 0.42
+    static let developAt = 0.50
+    static let developEnd = 0.84
 
     static let cardRadius: Double = 24
     /// The neck snaps once it is thinner than this, rather than thinning to a
     /// hair — a hair reads as a rendering artefact, not as a drop letting go.
     static let minimumNeck: Double = 5
+
+    /// How far the drop has swelled after waiting this long.
+    static func charge(afterWaiting seconds: TimeInterval) -> Double {
+        smoothstep(seconds / chargeDuration)
+    }
+
+    /// A droplet thrown off at the snap.
+    struct Droplet {
+        var centre: CGPoint
+        var radius: Double
+    }
 
     /// One instant of the sequence, in screen coordinates.
     struct Frame {
@@ -178,6 +197,11 @@ enum LiquidTimeline {
         var darkBottom: Double
         /// Radius of the bump the island keeps after the neck snaps.
         var residual: Double
+        var droplets: [Droplet]
+        /// Pitch of the card about its top edge as it lands, in degrees.
+        var tilt: Double
+        /// Strength of the glow along the island's edge while it charges.
+        var glow: Double
         /// Crossfade from the drawn blob to the real card view.
         var cardOpacity: Double
         /// Module resolve progress.
@@ -185,24 +209,27 @@ enum LiquidTimeline {
         var shadow: Double
     }
 
-    /// - Parameters:
-    ///   - line: the y the neck springs from, just above the island's lip.
-    ///   - centreX: the island's centre.
-    ///   - target: where the card lands.
-    ///   - breath: a small vertical offset for the hanging drop while the app is
-    ///     still working. It is faded out as the swell begins, so there is no
-    ///     seam between waiting and going.
-    static func frame(at t: Double, line: Double, centreX: Double,
-                      target: CGRect, breath: Double = 0) -> Frame {
+    /// Where the drop's body is, and how far its lower edge has settled.
+    struct Placement {
+        var rect: CGRect
+        var cornerRadius: Double
+        var bottomCurve: Double
+    }
+
+    /// Where the drop's body is at `t`. Split out so the droplets can ask where
+    /// it was a moment ago.
+    private static func placement(at t: Double, line: Double, centreX: Double,
+                                  target: CGRect, breath: Double, charge: Double) -> Placement {
         let swell = segment(t, 0, swellEnd)
         let stretch = segment(t, swellEnd - 0.02, stretchEnd)
         let breathing = breath * (1 - segment(t, 0, 0.06))
 
-        // The drop, hand-tuned: it starts as a bulge mostly behind the island,
-        // hangs, then stretches from the bottom.
-        let dropWidth = lerp(18, 32, swell) + 4 * stretch
-        let dropTop = line + lerp(-12, 0, swell) + 26 * stretch + breathing
-        let dropBottom = line + lerp(6, 32, swell) + 46 * stretch + breathing
+        // The drop, hand-tuned. It starts as a bulge mostly behind the island —
+        // further out the longer it has charged — hangs, then stretches from
+        // the bottom.
+        let dropWidth = lerp(lerp(18, 26, charge), 32, swell) + 4 * stretch
+        let dropTop = line + lerp(lerp(-12, -8, charge), 0, swell) + 26 * stretch + breathing
+        let dropBottom = line + lerp(lerp(6, 14, charge), 32, swell) + 46 * stretch + breathing
 
         // The fall. Each edge on its own curve, so the card spreads rather than
         // scales: width first and fast, the lower edge last and springiest.
@@ -221,6 +248,24 @@ enum LiquidTimeline {
         let inFlightRadius = cardRadius + 26 * (1 - easeOut(fall / 0.9, power: 2))
         let cornerRadius = min(width / 2, (bottom - top) / 2, inFlightRadius)
 
+        return Placement(rect: rect, cornerRadius: cornerRadius, bottomCurve: bottomCurve)
+    }
+
+    /// - Parameters:
+    ///   - line: the y the neck springs from, just above the island's lip.
+    ///   - centreX: the island's centre.
+    ///   - target: where the card lands.
+    ///   - breath: a small vertical offset for the hanging drop while the app is
+    ///     still working. It is faded out as the swell begins, so there is no
+    ///     seam between waiting and going.
+    ///   - charge: how far the wait had swelled the drop, 0...1. The swell picks
+    ///     up from there rather than from nothing.
+    static func frame(at t: Double, line: Double, centreX: Double,
+                      target: CGRect, breath: Double = 0, charge: Double = 0) -> Frame {
+        let placed = placement(at: t, line: line, centreX: centreX, target: target,
+                               breath: breath, charge: charge)
+        let rect = placed.rect
+
         // Broad shoulders while it hangs, thinning as it stretches, then gone.
         let neck = lerp(14, 16, segment(t, 0, swellEnd)) * (1 - segment(t, swellEnd, stretchEnd))
 
@@ -234,19 +279,46 @@ enum LiquidTimeline {
 
         // What the island keeps: a bump that springs back with one bounce.
         var residual = 0.0
-        let sinceBreak = (t - breakAt) * duration
-        if sinceBreak > 0 {
-            residual = 6 * exp(-7 * sinceBreak) * max(cos(11 * sinceBreak), 0)
+        let sinceSnap = (t - breakAt) * duration
+        if sinceSnap > 0 {
+            residual = 6 * exp(-7 * sinceSnap) * max(cos(11 * sinceSnap), 0)
         }
 
+        // Two droplets thrown off beside the neck. They appear where the drop
+        // was a moment ago, chase it, and are taken into its top edge.
+        var droplets: [Droplet] = []
+        if sinceSnap > 0 {
+            for (index, lag) in [0.03, 0.055].enumerated() {
+                let life = clamp01(sinceSnap / 0.28)
+                guard life < 1 else { continue }
+                let trail = placement(at: max(t - lag, breakAt), line: line, centreX: centreX,
+                                      target: target, breath: breath, charge: charge).rect
+                let side: Double = index == 0 ? -1 : 1
+                let from = CGPoint(x: trail.midX + side * (7 + 9 * (1 - life)), y: trail.minY - 2)
+                let to = CGPoint(x: rect.midX + side * 5, y: rect.minY + 2)
+                let chase = smoothstep(life)
+                let radius = 3.2 * smoothstep(life / 0.15) * (1 - smoothstep((life - 0.6) / 0.4))
+                droplets.append(Droplet(centre: CGPoint(x: lerp(from.x, to.x, chase),
+                                                        y: lerp(from.y, to.y, chase)),
+                                        radius: radius))
+            }
+        }
+
+        // The landing: the lower edge overshoots and comes back, and the card
+        // pitches with it, so it touches down rather than stops.
+        let tilt = 110 * max(placed.bottomCurve - 1, 0)
+
         return Frame(rect: rect,
-                     cornerRadius: cornerRadius,
+                     cornerRadius: placed.cornerRadius,
                      neck: neck,
                      darkTop: darkTop,
                      darkBottom: darkBottom,
                      residual: residual,
+                     droplets: droplets,
+                     tilt: tilt,
+                     glow: charge * (1 - segment(t, 0, swellEnd)),
                      cardOpacity: segment(t, handoverAt, handoverAt + handoverWidth),
-                     develop: clamp01((t - developAt) / (1 - developAt)),
+                     develop: clamp01((t - developAt) / (developEnd - developAt)),
                      shadow: segment(t, breakAt, 0.40))
     }
 
@@ -367,17 +439,29 @@ enum LiquidTimeline {
 
     // MARK: Drawing
 
-    /// Draws everything except the real card: the stand-in slot, the drop with
-    /// its neck, the freed blob until the card takes over, and the bump the
-    /// island keeps.
+    /// Draws everything except the real card: the stand-in slot, the island's
+    /// glow, the drop with its neck, the freed blob until the card takes over,
+    /// the droplets, and the bump the island keeps.
     static func draw(_ frame: Frame, in context: inout GraphicsContext,
-                     line: Double, centreX: Double, paper: RGB, ownSlot: CGRect?) {
+                     line: Double, centreX: Double, paper: RGB, brand: RGB, ownSlot: CGRect?) {
         let island = RGB(red: 0, green: 0, blue: 0)
         let islandColour = island.swiftUIColor
 
         if let slot = ownSlot {
             context.fill(Path(roundedRect: slot, cornerRadius: slot.height / 2, style: .continuous),
                          with: .color(islandColour))
+        }
+
+        // The charge: a halo in the artwork's colour along the island's lower
+        // edge. The island covers its upper half, so it reads as light spilling
+        // from under the edge.
+        if frame.glow > 0.01 {
+            let halo = CGRect(x: centreX - 44, y: line - 4, width: 88, height: 12)
+            context.drawLayer { layer in
+                layer.addFilter(.blur(radius: 10))
+                layer.fill(Path(roundedRect: halo, cornerRadius: 6),
+                           with: .color(brand.swiftUIColor.opacity(0.75 * frame.glow)))
+            }
         }
 
         let rect = frame.rect
@@ -419,6 +503,11 @@ enum LiquidTimeline {
                                                  startPoint: CGPoint(x: rect.midX, y: rect.minY),
                                                  endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
             }
+            for droplet in frame.droplets where droplet.radius > 0.2 {
+                let box = CGRect(x: droplet.centre.x - droplet.radius, y: droplet.centre.y - droplet.radius,
+                                 width: droplet.radius * 2, height: droplet.radius * 2)
+                layer.fill(Path(ellipseIn: box), with: .color(bottomColour))
+            }
         }
 
         if attached == nil, frame.residual > 0.2 {
@@ -444,6 +533,10 @@ struct PrintSequenceOverlay: View {
     let phase: GeneratePhase
     let plan: RenderPlan?
     let choreography: Choreography
+    /// The artwork's colour: the island's charge glow and the burst.
+    let brand: RGB
+    /// How far the wait had swelled the drop when the print began.
+    let charge: Double
     /// Where the card is going, in global coordinates.
     let destination: CGRect
     let start: Date
@@ -475,6 +568,14 @@ struct PrintSequenceOverlay: View {
         }
     }
 
+    /// While working, the charge grows with the wait; once the print has begun
+    /// it is whatever the wait left it at.
+    private func currentCharge(now: Date) -> Double {
+        phase == .working
+            ? LiquidTimeline.charge(afterWaiting: now.timeIntervalSince(start))
+            : charge
+    }
+
     /// - Parameter origin: where this view sits in screen coordinates.
     ///
     /// Everything is worked out on the screen and moved into this view's space
@@ -498,8 +599,8 @@ struct PrintSequenceOverlay: View {
         // A slow breath while it waits, taken from the wall clock so its phase
         // is continuous into the moment the drop starts to swell.
         let breath = 1.2 * sin(now.timeIntervalSinceReferenceDate * 2 * .pi * 0.6)
-        let frame = LiquidTimeline.frame(at: t, line: line, centreX: centreX,
-                                         target: target, breath: breath)
+        let frame = LiquidTimeline.frame(at: t, line: line, centreX: centreX, target: target,
+                                         breath: breath, charge: currentCharge(now: now))
 
         let ownSlot: CGRect? = IslandMetrics.hasIsland(topSafeArea: topSafeArea)
             ? nil
@@ -510,13 +611,16 @@ struct PrintSequenceOverlay: View {
         ZStack {
             Canvas { context, _ in
                 LiquidTimeline.draw(frame, in: &context, line: line, centreX: centreX,
-                                    paper: paper, ownSlot: ownSlot)
+                                    paper: paper, brand: brand, ownSlot: ownSlot)
             }
 
             if frame.cardOpacity > 0, let plan {
                 PrintedCard(plan: plan, choreography: choreography,
-                            progress: frame.develop, cornerRadius: frame.cornerRadius)
+                            progress: frame.develop, cornerRadius: frame.cornerRadius,
+                            burst: brand)
                     .frame(width: frame.rect.width, height: frame.rect.height)
+                    .rotation3DEffect(.degrees(-frame.tilt), axis: (x: 1, y: 0, z: 0),
+                                      anchor: .top, perspective: 0.4)
                     .position(x: frame.rect.midX, y: frame.rect.midY)
                     .shadow(color: .black.opacity(0.18 * frame.shadow), radius: 18, y: 9)
                     .opacity(frame.cardOpacity)
@@ -537,11 +641,15 @@ struct PrintedCard: View {
     let choreography: Choreography
     let progress: Double
     var cornerRadius: Double = LiquidTimeline.cardRadius
+    /// When set, the modules land hot in this colour and a radial order draws
+    /// its front as a ring. The generate animation's burst.
+    var burst: RGB? = nil
 
     var body: some View {
         ZStack {
             plan.palette.paper.swiftUIColor
-            ModuleResolveCanvas(plan: plan, progress: progress, choreography: choreography)
+            ModuleResolveCanvas(plan: plan, progress: progress, choreography: choreography,
+                                burst: burst)
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }

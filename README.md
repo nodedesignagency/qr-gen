@@ -58,12 +58,24 @@ likeness for nothing.
 Tapping Generate makes the Dynamic Island let go of a drop, and the drop
 spreads into the card.
 
-The island's lower edge bulges, the bulge hangs into a drop, the drop stretches
-into a pill and its neck snaps. What the island keeps springs back. The freed
-drop falls and spreads into the card — its width first, then its lower edge,
-each on its own spring — and the symbol develops as it lands. Change the URL or
-the logo afterwards and the same sequence runs backwards: the modules leave, the
-card is pulled up into a drop, and the island takes it back.
+While the verify loop runs, the island's lower edge bulges a little further
+with every moment it works and its edge glows in the artwork's colour, so the
+wait reads as pressure building rather than a pause. Once there is a verified
+symbol the bulge hangs into a drop, stretches into a pill and its neck snaps.
+What the island keeps springs back; two satellite droplets chase the card and
+are taken into its edge. The freed drop lightens and spreads into the card —
+its width first, then its lower edge, each on its own spring, pitching as the
+lower edge overshoots and lands — and the symbol bursts onto it: a ring in the
+artwork's colour sweeps out from the centre and each module snaps in as it
+passes, hot, cooling to the ink. The finders are at the corners, so they land
+last. The haptics follow the liquid: a soft tick at the snap, a firm one on
+landing, a ratchet as the burst crosses the card, a harder one as the finders
+punch in.
+
+The page becomes the customise page as the card touches down: the inputs give
+way and the controls rise into place under the card. Tap Edit and the same
+sequence runs backwards — the modules leave, the card is pulled up into a drop,
+and the island takes it back.
 
 Everything on screen is a pure function of one clock, which is what makes it
 scrubbable and reversible. The join between drop and island is a pair of fillets
@@ -80,8 +92,7 @@ the join is hidden under the real thing. On a device without an island a black
 pill stands in.
 
 The card is the real plan, so what is watched developing is byte-identical to
-the PNG that comes out of the exporter, and the development is the module
-choreography the user picked, the same one the app uses everywhere else.
+the PNG that comes out of the exporter.
 
 ## Verification
 
@@ -125,11 +136,13 @@ density above 0.12. Each produces a specific headline and a specific suggestion.
    URL. Warns when the destination is long, since more modules means smaller
    blocks. If there is no logo, `og:image` / `apple-touch-icon` and
    `theme-color` are pulled from the site as a fallback.
-2. **Tune** — live preview, one slider for logo strength, three module shapes
-   and three finder styles. No error-correction or mask controls are exposed.
-3. **Verify** — the decoded string, the pass state and the capture count, with
-   the symbol resolving into place while the loop runs.
-4. **Export** — four finishes generated and verified at once; pick one and write
+2. **Customise** — the same page, once the card has landed: one slider for logo
+   strength, three module shapes, three finder styles, the centre emblem and
+   the resolve order, all on glass under the card. Every change re-renders a
+   fast preview; **Verify** proves it in place — the decoded string and the
+   capture count — before Export is offered. No error-correction or mask
+   controls are exposed.
+3. **Export** — four finishes generated and verified at once; pick one and write
    **SVG, PDF and PNG**, plus an optional animated GIF of the resolve.
 
 ---

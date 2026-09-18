@@ -12,8 +12,9 @@ struct RootView: View {
     var body: some View {
         ZStack {
             // The input screen is built to the design file and owns its whole
-            // canvas, video background included. The later stages still run on
-            // the dark chrome until they are redrawn in turn.
+            // canvas, video background included — and it is the customise page
+            // too, once the card has landed. Export still runs on the dark
+            // chrome until it is redrawn in turn.
             if model.stage == .input {
                 InputScreen(model: model)
             } else {
@@ -25,6 +26,8 @@ struct RootView: View {
                 PrintSequenceOverlay(phase: model.generatePhase,
                                      plan: model.generatingPlan,
                                      choreography: model.choreography,
+                                     brand: model.brandColour,
+                                     charge: model.generateCharge,
                                      destination: cardSlot,
                                      start: model.printStart)
                     .transition(.opacity)
@@ -66,8 +69,6 @@ struct RootView: View {
     private var title: String {
         switch model.stage {
         case .input: return "New code"
-        case .tune: return "Customise"
-        case .verify: return "Verify"
         case .export: return "Export"
         }
     }
@@ -79,10 +80,6 @@ struct RootView: View {
         switch model.stage {
         case .input:
             EmptyView()
-        case .tune:
-            TuneScreen(model: model)
-        case .verify:
-            VerifyScreen(model: model)
         case .export:
             ExportScreen(model: model)
         }
@@ -95,10 +92,6 @@ struct RootView: View {
         switch model.stage {
         case .input:
             EmptyView()
-        case .tune:
-            TuneControls(model: model)
-        case .verify:
-            VerifyControls(model: model)
         case .export:
             ExportControls(model: model)
         }
@@ -131,8 +124,6 @@ struct RootView: View {
     private var primaryTitle: String {
         switch model.stage {
         case .input: return "Generate"   // input draws its own action
-        case .tune: return "Verify"
-        case .verify: return model.verification?.passed == true ? "Export" : "Verifying"
         case .export: return model.exportBundle == nil ? "Write files" : "Done"
         }
     }
@@ -140,15 +131,13 @@ struct RootView: View {
     private var primaryEnabled: Bool {
         switch model.stage {
         case .input: return model.canContinueFromInput
-        case .tune: return model.plan != nil
-        case .verify: return model.verification?.passed == true
         case .export: return model.selected != nil && !model.isExporting
         }
     }
 
     private func primaryActionTapped() {
         switch model.stage {
-        case .input, .tune, .verify:
+        case .input:
             model.advance()
         case .export:
             if model.exportBundle == nil {

@@ -4,7 +4,9 @@ uses, so the timeline can be tuned by eye without a build.
 
 `LiquidTimeline` in `HalftoneQR/Features/Generate/PrintSequence.swift` is a port
 of `frame()` and `union_polygon()` below; the constants there are the ones read
-off these sheets. Keep the two in step.
+off these sheets. Keep the two in step. The app adds what needs the real card
+on top of this geometry: the charge, the droplets, the pitch on landing and
+the burst.
 
     pip install pillow
     python3 liquid_proto.py goo      # the drop forming, letting go and lightening
@@ -67,9 +69,10 @@ SWELL_END = 0.10
 STRETCH_END = 0.18
 BREAK_AT = 0.137        # verified by `break`
 LAND_AT = 0.55
-HANDOVER_AT = 0.38
+HANDOVER_AT = 0.34
 HANDOVER_WIDTH = 0.05
-DEVELOP_AT = 0.42
+DEVELOP_AT = 0.50
+DEVELOP_END = 0.84
 
 CARD_RADIUS = 24.0
 MINIMUM_NECK = 5.0
@@ -128,7 +131,7 @@ def frame(t, line, centre_x, target, breath=0.0):
     return Frame(mid_x - width / 2, top, bottom, width, corner, neck, dark_top, dark_bottom,
                  residual,
                  segment(t, HANDOVER_AT, HANDOVER_AT + HANDOVER_WIDTH),
-                 clamp01((t - DEVELOP_AT) / (1.0 - DEVELOP_AT)),
+                 clamp01((t - DEVELOP_AT) / (DEVELOP_END - DEVELOP_AT)),
                  segment(t, BREAK_AT, 0.40))
 
 

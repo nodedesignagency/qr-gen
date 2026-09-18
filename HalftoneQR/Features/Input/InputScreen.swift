@@ -2,7 +2,10 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Screen one, built to the design file.
+/// Screen one, built to the design file — and, once the island has let go of
+/// the card, the customise page too. They are one screen: the card lands in
+/// the frame the page keeps for it, the inputs give way to the controls as it
+/// touches down, and nothing navigates.
 ///
 /// Measurements come straight from the Figma inspector: 353-wide surfaces on a
 /// 393 frame (20pt margins), 20pt corner radius, `#73FAFF` at 20% over glass,
@@ -19,44 +22,71 @@ struct InputScreen: View {
     private let surfaceWidth: CGFloat = 353
     private let radius: CGFloat = 20
 
+    /// The page keeps one slot. Before generating it is the upload card; from
+    /// the moment the drop lets go it is the square the card will land in, so
+    /// the overlay has somewhere exact to hand over to and nothing jumps. It
+    /// stays while the card is drawn back, for the same reason in reverse.
+    private var isCustomising: Bool {
+        model.generatePhase.isMovingCard || model.verifiedRender != nil
+    }
+
+    /// The controls arrive as the card lands, not as the drop lets go.
+    private var controlsShown: Bool {
+        model.cardLanded || (model.generatePhase == .idle && model.verifiedRender != nil)
+    }
+
     var body: some View {
         ZStack {
             AppBackground()
 
             VStack(spacing: 0) {
-                title
-                    // The card passes straight over this on its way down and
-                    // back up, so the title steps aside while it is moving.
-                    .opacity(model.generatePhase.isMovingCard ? 0 : 1)
-                    .animation(.easeOut(duration: 0.28), value: model.generatePhase)
-                    .padding(.top, 10)
-                    .padding(.bottom, 30)
+                if isCustomising {
+                    customiseHeader
+                        .padding(.top, 10)
+                        .padding(.bottom, 16)
+                } else {
+                    title
+                        .padding(.top, 10)
+                        .padding(.bottom, 30)
+                }
 
-                uploadSurface
+                cardSurface
                     .frame(maxWidth: surfaceWidth)
-                    .padding(.bottom, 22)
-                    .animation(.easeOut(duration: 0.28), value: showsResultSlot)
                     // Changing the inputs mid-sequence would pull the result out
                     // from under the animation, so they wait for it to finish.
                     .allowsHitTesting(!model.generatePhase.isRunning)
 
-                urlSurface
-                    .frame(maxWidth: surfaceWidth)
-                    .allowsHitTesting(!model.generatePhase.isRunning)
-
-                if let analysis = model.analysis, !analysis.isUsable, showsDetail {
-                    adviceSurface(analysis)
+                if isCustomising {
+                    customiseControls
                         .frame(maxWidth: surfaceWidth)
-                        .padding(.top, 16)
+                        .padding(.top, 14)
+                        // They rise into place on the landing, as if the card
+                        // pushed them up.
+                        .opacity(controlsShown ? 1 : 0)
+                        .offset(y: controlsShown ? 0 : 28)
+                        .animation(.spring(response: 0.5, dampingFraction: 0.72), value: controlsShown)
+                        .allowsHitTesting(controlsShown && !model.generatePhase.isRunning)
+                } else {
+                    urlSurface
+                        .frame(maxWidth: surfaceWidth)
+                        .padding(.top, 22)
+                        .allowsHitTesting(!model.generatePhase.isRunning)
+
+                    if let analysis = model.analysis, !analysis.isUsable, showsDetail {
+                        adviceSurface(analysis)
+                            .frame(maxWidth: surfaceWidth)
+                            .padding(.top, 16)
+                    }
                 }
 
-                Spacer(minLength: 24)
+                Spacer(minLength: 12)
 
-                generateButton
+                primaryButton
                     .frame(maxWidth: surfaceWidth)
                     .padding(.bottom, 24)
             }
             .padding(.horizontal, 20)
+            .animation(.easeOut(duration: 0.28), value: isCustomising)
         }
         .fileImporter(isPresented: $isImporting,
                       allowedContentTypes: ImageDecoder.supportedTypes,
@@ -94,22 +124,51 @@ struct InputScreen: View {
             .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
     }
 
-    // MARK: - Upload
-
-    /// The page keeps one slot. Before generating it is the upload card; from the
-    /// moment the drop lets go it is the square the card will land in, so the
-    /// overlay has somewhere exact to hand over to and nothing jumps. It stays
-    /// while the card is drawn back, for the same reason in reverse.
-    private var showsResultSlot: Bool {
-        model.generatePhase.isMovingCard || model.verifiedRender != nil
+    /// The customise page's header: its name, and the way back to the inputs.
+    /// Edit takes the card back into the island; the logo and URL stay put.
+    private var customiseHeader: some View {
+        HStack(alignment: .center) {
+            Text("Customise")
+                .snType(24, weight: .medium)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+            Spacer()
+            Button {
+                model.withdraw()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("Edit")
+                        .snType(15, weight: .semibold)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 38)
+                .glassSurface(cornerRadius: 19)
+            }
+            .buttonStyle(.plain)
+            .disabled(model.generatePhase.isRunning)
+            .opacity(model.generatePhase.isRunning ? 0.5 : 1)
+        }
+        .frame(height: 44)
+        .frame(maxWidth: surfaceWidth)
     }
 
+    // MARK: - Card
+
     @ViewBuilder
-    private var uploadSurface: some View {
-        if showsResultSlot {
+    private var cardSurface: some View {
+        if isCustomising {
             ZStack {
-                if let plan = model.plan {
-                    PrintedCard(plan: plan, choreography: model.choreography, progress: 1)
+                // While the overlay owns the card the slot is empty; the page's
+                // own card takes over in the same frame once it has landed.
+                if !model.generatePhase.isMovingCard, let plan = model.plan {
+                    QRCard(plan: plan,
+                           animationKey: model.resolveToken,
+                           choreography: model.choreography,
+                           isScanning: model.isVerifying,
+                           cornerRadius: CGFloat(LiquidTimeline.cardRadius))
                 }
             }
             .frame(width: surfaceWidth, height: surfaceWidth)
@@ -263,12 +322,85 @@ struct InputScreen: View {
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
+    // MARK: - Customise
+
+    /// The card's state, the slider, and the round controls. Every change
+    /// re-renders a fast preview; Verify proves it before Export is offered.
+    private var customiseControls: some View {
+        VStack(spacing: 14) {
+            statusRow
+
+            GlassSlider(title: "Logo strength", value: $model.config.logoStrength) { editing in
+                model.schedulePreview(debounce: editing ? .milliseconds(40) : .zero)
+            }
+            .onChange(of: model.config.logoStrength) { _, _ in
+                model.schedulePreview()
+            }
+
+            HStack(spacing: 10) {
+                GlassControl(label: "Pixels") {
+                    model.config.cellShape = model.config.cellShape.next
+                    model.schedulePreview(debounce: .zero)
+                } glyph: {
+                    LatticeGlyph(shape: model.config.cellShape, colour: .white)
+                }
+
+                GlassControl(label: "Eyes") {
+                    model.config.finderStyle = model.config.finderStyle.next
+                    model.schedulePreview(debounce: .zero)
+                } glyph: {
+                    FinderGlyph(style: model.config.finderStyle, colour: .white)
+                }
+
+                GlassControl(label: "Centre",
+                             isSelected: model.config.showsEmblem,
+                             isEnabled: model.silhouette != nil) {
+                    model.config.showsEmblem.toggle()
+                    model.schedulePreview(debounce: .zero)
+                } glyph: {
+                    EmblemGlyph(isOn: model.config.showsEmblem)
+                }
+
+                GlassControl(label: "Motion") {
+                    model.choreography = model.choreography.next
+                    model.replayResolve()
+                } glyph: {
+                    MotionGlyph(choreography: model.choreography)
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private var statusRow: some View {
+        HStack(spacing: 8) {
+            if let plan = model.plan {
+                GlassPill(text: "V\(plan.version) · \(plan.moduleCount)×\(plan.moduleCount)")
+            }
+            if model.isVerifying {
+                GlassPill(text: "Decoding", dot: Color(hex: "#73FAFF") ?? .cyan)
+            } else if model.isVerified, let report = model.verification {
+                GlassPill(text: "Verified · \(report.summary)", dot: Color(hex: "#7CFFB2") ?? .green)
+            } else {
+                GlassPill(text: "Edited · verify to export", dot: Color(hex: "#FFD36B") ?? .yellow)
+            }
+            Spacer(minLength: 0)
+        }
+        .animation(.easeOut(duration: 0.18), value: model.isVerifying)
+        .animation(.easeOut(duration: 0.18), value: model.isVerified)
+    }
+
     // MARK: - Action
 
-    private var generateButton: some View {
+    /// One button for the whole page: Generate, then Verify, then Export.
+    private var primaryButton: some View {
         Button {
-            if model.verifiedRender != nil {
-                model.advance()
+            if isCustomising {
+                if model.isVerified {
+                    model.advance()
+                } else {
+                    Task { await model.runVerification() }
+                }
             } else {
                 // The keyboard would sit over the landing spot, and a keystroke
                 // mid-sequence would discard what is being generated.
@@ -286,8 +418,8 @@ struct InputScreen: View {
                     if isReady {
                         Capsule().fill(.white)
                     } else {
-                        // Until there is something to generate, the button stays
-                        // in the glass language and solidifies once it is ready.
+                        // Until there is something to do, the button stays in
+                        // the glass language and solidifies once it is ready.
                         // A translucent white pill over bright water just reads
                         // as a smudge.
                         Color.clear.glassSurface(cornerRadius: 32)
@@ -295,7 +427,7 @@ struct InputScreen: View {
                 }
         }
         .buttonStyle(.plain)
-        .disabled(!isReady || model.generatePhase.isRunning)
+        .disabled(!isReady || model.generatePhase.isRunning || model.isVerifying)
         .animation(.easeOut(duration: 0.2), value: isReady)
     }
 
@@ -303,12 +435,18 @@ struct InputScreen: View {
         switch model.generatePhase {
         case .working, .printing:
             return "Generating"
-        case .idle, .retracting:
-            return model.verifiedRender != nil ? "Customise" : "Generate QR Code"
+        case .retracting:
+            return "Generate QR Code"
+        case .idle:
+            if !isCustomising { return "Generate QR Code" }
+            if model.isVerifying { return "Verifying" }
+            return model.isVerified ? "Export" : "Verify"
         }
     }
 
-    private var isReady: Bool { model.canContinueFromInput }
+    private var isReady: Bool {
+        isCustomising ? model.plan != nil : model.canContinueFromInput
+    }
 }
 
 /// Draws the silhouette the planner will actually consume, at thumbnail size.
