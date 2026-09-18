@@ -61,6 +61,11 @@ struct QRCard: View {
     private func card(side: CGFloat) -> some View {
         ZStack {
             if let plan {
+                // The paper fills the card to its own corners. The plan's paper
+                // is rounded in module units for the exports, and inside a 24pt
+                // clip that left the corners open.
+                plan.palette.paper.swiftUIColor
+
                 if let startedAt {
                     // Live module-resolution drawing until the sequence completes,
                     // then the bitmap takes over in the same frame position.
@@ -69,7 +74,7 @@ struct QRCard: View {
                         let progress = min(max(elapsed / duration, 0), 1)
                         if progress < 1 {
                             PlanResolveCanvas(plan: plan, progress: progress,
-                                              choreography: choreography)
+                                              choreography: choreography, drawsPaper: false)
                         } else {
                             settled(plan: plan)
                         }
@@ -96,7 +101,7 @@ struct QRCard: View {
         } else {
             // The bitmap is still rendering; the live canvas stands in so there
             // is never an empty frame.
-            PlanResolveCanvas(plan: plan, progress: 1, choreography: choreography)
+            PlanResolveCanvas(plan: plan, progress: 1, choreography: choreography, drawsPaper: false)
         }
     }
 }
@@ -107,23 +112,19 @@ struct QRCard: View {
 /// their real shapes and sizes — so the last frame *is* the still, and nothing
 /// changes style when the rendered bitmap takes over. Each colour group is one
 /// path fill, so a dense symbol costs a handful of fills per frame.
-///
-/// `bleed` is extra room around the card, on every side: the big bang throws
-/// cells past the card's edge and back, and they need somewhere to be.
 struct PlanResolveCanvas: View {
     let plan: RenderPlan
     let progress: Double
     let choreography: Choreography
-    var bleed: CGFloat = 0
-    /// Whether to lay the paper down here. The overlay keeps its paper in the
-    /// card underneath, clipped, and has this draw the cells alone.
+    /// Whether to lay the plan's paper down here. The card draws its own paper
+    /// underneath, to its own corners, and has this draw the cells alone.
     var drawsPaper: Bool = true
 
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: false) { context, size in
-            let side = size.width - bleed * 2
+            let side = size.width
             let scale = side / plan.canvasUnits
-            let transform = CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: bleed, ty: bleed)
+            let transform = CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: 0, ty: 0)
 
             // The bang: light at the centre, gone as the cloud spreads.
             if choreography == .bigBang, progress > 0.001, progress < 0.30 {

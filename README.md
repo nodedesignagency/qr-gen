@@ -62,16 +62,18 @@ While the verify loop runs, the island's lower edge bulges a little further
 with every moment it works and its edge glows in the artwork's colour, so the
 wait reads as pressure building rather than a pause. Once there is a verified
 symbol the bulge hangs into a drop, stretches into a pill and its neck snaps.
-What the island keeps springs back; two satellite droplets chase the card and
-are taken into its edge. The freed drop lightens and spreads into the card —
+What the island keeps springs back. The freed drop lightens and spreads into
+the card —
 its width first, then its lower edge, each on its own spring, pitching as the
 lower edge overshoots and lands — and the symbol is made on it from one point.
-Every cell the exporter will write is thrown out of the card's centre into a
-cloud, past where it belongs and with some scatter; the cloud hangs for a beat;
-then module by module the cells fall back in, overshoot, and snap into place,
-the three finders whole and last. The haptics follow the liquid: a soft tick at
-the snap, a firm one on landing, the bang, a ratchet as the cells fall in, and
-a harder tick as the finders lock.
+Every cell the exporter will write is thrown out of the card's centre as a tiny
+particle into a cloud that keeps creeping outward; then, from the centre out,
+each particle turns for home on a curved path, growing to its full size with a
+soft overshoot as it arrives. The three finders are particles too — each broken
+into tiny tiles sampled from inside its real shape — and they come home last,
+together, with the crisp finder laid over them. The haptics follow the liquid:
+a soft tick at the snap, a firm one on landing, the bang, a ratchet as the
+cells fall in, and a harder tick as the finders lock.
 
 The resolve is drawn live from the plan's real geometry — the same cells, at
 the same shapes and sizes, as the still — so the last frame *is* the export

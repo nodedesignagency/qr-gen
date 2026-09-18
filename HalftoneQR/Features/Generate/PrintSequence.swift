@@ -133,9 +133,8 @@ private func spring(_ x: Double, overshoot: Double) -> Double {
 /// 2. **Swell, stretch, let go.** The bulge hangs into a drop, the drop pulls
 ///    into a pill, and the fillets joining it to the island — the
 ///    surface-tension shape — shrink until the neck is thinner than
-///    `minimumNeck` and snaps. What the island keeps springs back; two satellite
-///    droplets chase the card and are taken into its edge. The colour runs from
-///    the island's black to paper down the drop as it goes.
+///    `minimumNeck` and snaps. What the island keeps springs back. The colour
+///    runs from the island's black to paper down the drop as it goes.
 /// 3. **Spread.** The freed drop falls and spreads into the card: its width
 ///    first, then its lower edge, each on its own spring, with a small pitch as
 ///    the lower edge overshoots and lands. That is what makes it read as liquid
@@ -177,12 +176,6 @@ enum LiquidTimeline {
         smoothstep(seconds / chargeDuration)
     }
 
-    /// A droplet thrown off at the snap.
-    struct Droplet {
-        var centre: CGPoint
-        var radius: Double
-    }
-
     /// One instant of the sequence, in screen coordinates.
     struct Frame {
         /// The drop, then the card. Its corner radius is `width / 2` for as long
@@ -197,7 +190,6 @@ enum LiquidTimeline {
         var darkBottom: Double
         /// Radius of the bump the island keeps after the neck snaps.
         var residual: Double
-        var droplets: [Droplet]
         /// Pitch of the card about its top edge as it lands, in degrees.
         var tilt: Double
         /// Strength of the glow along the island's edge while it charges.
@@ -216,8 +208,7 @@ enum LiquidTimeline {
         var bottomCurve: Double
     }
 
-    /// Where the drop's body is at `t`. Split out so the droplets can ask where
-    /// it was a moment ago.
+    /// Where the drop's body is at `t`.
     private static func placement(at t: Double, line: Double, centreX: Double,
                                   target: CGRect, breath: Double, charge: Double) -> Placement {
         let swell = segment(t, 0, swellEnd)
@@ -284,26 +275,6 @@ enum LiquidTimeline {
             residual = 6 * exp(-7 * sinceSnap) * max(cos(11 * sinceSnap), 0)
         }
 
-        // Two droplets thrown off beside the neck. They appear where the drop
-        // was a moment ago, chase it, and are taken into its top edge.
-        var droplets: [Droplet] = []
-        if sinceSnap > 0 {
-            for (index, lag) in [0.03, 0.055].enumerated() {
-                let life = clamp01(sinceSnap / 0.28)
-                guard life < 1 else { continue }
-                let trail = placement(at: max(t - lag, breakAt), line: line, centreX: centreX,
-                                      target: target, breath: breath, charge: charge).rect
-                let side: Double = index == 0 ? -1 : 1
-                let from = CGPoint(x: trail.midX + side * (7 + 9 * (1 - life)), y: trail.minY - 2)
-                let to = CGPoint(x: rect.midX + side * 5, y: rect.minY + 2)
-                let chase = smoothstep(life)
-                let radius = 3.2 * smoothstep(life / 0.15) * (1 - smoothstep((life - 0.6) / 0.4))
-                droplets.append(Droplet(centre: CGPoint(x: lerp(from.x, to.x, chase),
-                                                        y: lerp(from.y, to.y, chase)),
-                                        radius: radius))
-            }
-        }
-
         // The landing: the lower edge overshoots and comes back, and the card
         // pitches with it, so it touches down rather than stops.
         let tilt = 110 * max(placed.bottomCurve - 1, 0)
@@ -314,7 +285,6 @@ enum LiquidTimeline {
                      darkTop: darkTop,
                      darkBottom: darkBottom,
                      residual: residual,
-                     droplets: droplets,
                      tilt: tilt,
                      glow: charge * (1 - segment(t, 0, swellEnd)),
                      cardOpacity: segment(t, handoverAt, handoverAt + handoverWidth),
@@ -441,7 +411,7 @@ enum LiquidTimeline {
 
     /// Draws everything except the real card: the stand-in slot, the island's
     /// glow, the drop with its neck, the freed blob until the card takes over,
-    /// the droplets, and the bump the island keeps.
+    /// and the bump the island keeps.
     static func draw(_ frame: Frame, in context: inout GraphicsContext,
                      line: Double, centreX: Double, paper: RGB, brand: RGB, ownSlot: CGRect?) {
         let island = RGB(red: 0, green: 0, blue: 0)
@@ -502,11 +472,6 @@ enum LiquidTimeline {
                            with: .linearGradient(Gradient(colors: [topColour, bottomColour]),
                                                  startPoint: CGPoint(x: rect.midX, y: rect.minY),
                                                  endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
-            }
-            for droplet in frame.droplets where droplet.radius > 0.2 {
-                let box = CGRect(x: droplet.centre.x - droplet.radius, y: droplet.centre.y - droplet.radius,
-                                 width: droplet.radius * 2, height: droplet.radius * 2)
-                layer.fill(Path(ellipseIn: box), with: .color(bottomColour))
             }
         }
 
@@ -615,23 +580,19 @@ struct PrintSequenceOverlay: View {
             }
 
             if frame.cardOpacity > 0, let plan {
-                // The paper is the card, clipped. The cells are drawn over it
-                // with room on every side, because the big bang throws them
-                // past the card's edge and back.
-                let bleed = frame.rect.width * 0.6
+                // The card: its own paper to its own corners, and the cells
+                // drawn on it. Everything stays inside the card.
                 ZStack {
                     plan.palette.paper.swiftUIColor
-                        .frame(width: frame.rect.width, height: frame.rect.height)
-                        .clipShape(RoundedRectangle(cornerRadius: frame.cornerRadius, style: .continuous))
-                        .shadow(color: .black.opacity(0.18 * frame.shadow), radius: 18, y: 9)
                     PlanResolveCanvas(plan: plan, progress: frame.develop, choreography: choreography,
-                                      bleed: bleed, drawsPaper: false)
-                        .frame(width: frame.rect.width + bleed * 2, height: frame.rect.height + bleed * 2)
+                                      drawsPaper: false)
                 }
+                .frame(width: frame.rect.width, height: frame.rect.height)
+                .clipShape(RoundedRectangle(cornerRadius: frame.cornerRadius, style: .continuous))
                 .rotation3DEffect(.degrees(-frame.tilt), axis: (x: 1, y: 0, z: 0),
-                                  anchor: UnitPoint(x: 0.5, y: bleed / (frame.rect.height + bleed * 2)),
-                                  perspective: 0.4)
+                                  anchor: .top, perspective: 0.4)
                 .position(x: frame.rect.midX, y: frame.rect.midY)
+                .shadow(color: .black.opacity(0.18 * frame.shadow), radius: 18, y: 9)
                 .opacity(frame.cardOpacity)
             }
         }
