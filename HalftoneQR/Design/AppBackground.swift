@@ -2,46 +2,53 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-/// A silent, looping video filling the screen behind everything else.
+/// The full-bleed background behind the first screen.
 ///
-/// The player is muted and set not to disturb audio already playing, so opening
-/// the app never interrupts someone's music. When no video is bundled it falls
-/// back to a still field in the same palette, so the layout is never broken by a
-/// missing asset.
-struct VideoBackground: View {
-    /// Basename of a video in the app bundle, without extension.
-    var resource: String = "background"
-    var fallback: LinearGradient = Palette.waterFallback
+/// Three sources, in order of preference: a bundled video loop, the still image
+/// in the asset catalogue, then a plain field in the same palette. The design
+/// file layers a 20% black fill over the image, which is what keeps the white
+/// type legible against the bright water, so the scrim is part of this view
+/// rather than something each screen remembers to add.
+struct AppBackground: View {
+    /// Basename of a video in the bundle, without extension. When present it
+    /// wins over the still.
+    var videoResource: String = "background"
+    /// Asset catalogue name of the still.
+    var imageResource: String = "pool-background"
+    /// `000000` at 20%, straight from the file.
+    var scrimOpacity: Double = 0.20
 
     var body: some View {
         ZStack {
-            fallback
-            if let url = Self.url(for: resource) {
+            Self.fallbackField
+            if let url = Self.videoURL(named: videoResource) {
                 LoopingPlayerView(url: url)
-                    .transition(.opacity)
+            } else if UIImage(named: imageResource) != nil {
+                Image(imageResource)
+                    .resizable()
+                    .scaledToFill()
             }
+            Color.black.opacity(scrimOpacity)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
     }
 
-    static func url(for resource: String) -> URL? {
+    static func videoURL(named name: String) -> URL? {
         for ext in ["mp4", "mov", "m4v"] {
-            if let url = Bundle.main.url(forResource: resource, withExtension: ext) {
+            if let url = Bundle.main.url(forResource: name, withExtension: ext) {
                 return url
             }
         }
         return nil
     }
 
-    enum Palette {
-        /// Stands in for the water loop until the asset is added.
-        static let waterFallback = LinearGradient(
-            colors: [Color(red: 0.22, green: 0.76, blue: 0.80),
-                     Color(red: 0.16, green: 0.64, blue: 0.70),
-                     Color(red: 0.30, green: 0.82, blue: 0.84)],
-            startPoint: .top, endPoint: .bottom)
-    }
+    /// Stands in if neither asset is present, so layout never breaks.
+    static let fallbackField = LinearGradient(
+        colors: [Color(red: 0.22, green: 0.76, blue: 0.80),
+                 Color(red: 0.16, green: 0.64, blue: 0.70),
+                 Color(red: 0.30, green: 0.82, blue: 0.84)],
+        startPoint: .top, endPoint: .bottom)
 }
 
 /// Wraps an `AVPlayerLayer` because SwiftUI's `VideoPlayer` insists on transport
@@ -63,6 +70,7 @@ private struct LoopingPlayerView: UIViewRepresentable {
 
     final class PlayerView: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
+
         private var looper: AVPlayerLooper?
         private var queuePlayer: AVQueuePlayer?
         private var foregroundObserver: NSObjectProtocol?

@@ -21,7 +21,7 @@ struct InputScreen: View {
 
     var body: some View {
         ZStack {
-            VideoBackground()
+            AppBackground()
 
             VStack(spacing: 0) {
                 title

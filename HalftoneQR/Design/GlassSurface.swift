@@ -16,8 +16,6 @@ struct GlassSurface: ViewModifier {
     var tint: Color = Color(hex: "#73FAFF") ?? .cyan
     var tintOpacity: Double = 0.20
     var cornerRadius: CGFloat = 20
-    /// Figma's Light value, 0...1. Drives how hot the rim reads.
-    var light: Double = 0.80
     var isHighlighted: Bool = false
 
     private var shape: RoundedRectangle {
@@ -26,51 +24,69 @@ struct GlassSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background { surface }
+            .background {
+                ZStack {
+                    backdrop
+                    shape.fill(tintedFill)
+                }
+            }
             .overlay { rim }
             .clipShape(shape)          // "Clip content" is on in the file
             .contentShape(shape)
     }
 
+    /// The material itself, untinted — the tint is a separate fill above it, as
+    /// in the design file, so the inner shadows sit on the tint and not on glass.
     @ViewBuilder
-    private var surface: some View {
+    private var backdrop: some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             shape.fill(Color.clear)
-                .glassEffect(.regular.tint(tint.opacity(tintOpacity)), in: shape)
+                .glassEffect(.regular, in: shape)
         } else {
-            fallbackSurface
+            shape.fill(Material.ultraThin)
         }
         #else
-        fallbackSurface
+        shape.fill(Material.ultraThin)
         #endif
     }
 
-    private var fallbackSurface: some View {
-        ZStack {
-            shape.fill(Material.ultraThin)
-            shape.fill(tint.opacity(tintOpacity))
-        }
+    /// The tint fill carrying the inner-shadow stack.
+    ///
+    /// The five shadows from the file, in listed order:
+    ///
+    ///     y -246  blur 69  white  1%
+    ///     y -158  blur 63  white  6%
+    ///     y  -89  blur 53  white 10%
+    ///     y  -39  blur 39  white 25%
+    ///     y  -10  blur 22  white 20%
+    ///
+    /// Every one is white and offset upward, so together they read as a glow
+    /// rising from the bottom inner edge — broad and nearly invisible at the top
+    /// of the stack, tight and bright at the bottom.
+    ///
+    /// Radii are the file's blur halved: Figma states blur the way CSS does, as
+    /// roughly twice the Gaussian sigma, while SwiftUI's shadow radius is about
+    /// the sigma itself.
+    private var tintedFill: some ShapeStyle {
+        tint.opacity(tintOpacity)
+            .shadow(.inner(color: .white.opacity(0.01), radius: 34.5, y: -246))
+            .shadow(.inner(color: .white.opacity(0.06), radius: 31.5, y: -158))
+            .shadow(.inner(color: .white.opacity(0.10), radius: 26.5, y: -89))
+            .shadow(.inner(color: .white.opacity(0.25), radius: 19.5, y: -39))
+            .shadow(.inner(color: .white.opacity(0.20), radius: 11.0, y: -10))
     }
 
-    /// Light arrives at -45°, so the rim is hottest at the top-leading edge and
-    /// cools round to a soft bounce at the bottom-trailing one.
+    /// The file lists no stroke; the visible edge comes from the glass itself.
+    /// This is a faint stand-in so the surface still reads as an edge on the
+    /// material fallback, plus the focus ring.
     private var rim: some View {
         ZStack {
             shape.strokeBorder(
                 LinearGradient(
-                    stops: [
-                        .init(color: Color.white.opacity(0.90 * light), location: 0.0),
-                        .init(color: Color.white.opacity(0.28 * light), location: 0.35),
-                        .init(color: Color.white.opacity(0.10 * light), location: 0.62),
-                        .init(color: Color.white.opacity(0.45 * light), location: 1.0),
-                    ],
-                    startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: 1)
-            shape.inset(by: 1.5)
-                .strokeBorder(Color.white.opacity(0.10 * light), lineWidth: 1)
-        }
-        .overlay {
+                    colors: [Color.white.opacity(0.30), Color.white.opacity(0.06)],
+                    startPoint: .top, endPoint: .bottom),
+                lineWidth: 0.75)
             if isHighlighted {
                 shape.strokeBorder(Color.white.opacity(0.55), lineWidth: 1.5)
             }
@@ -84,10 +100,9 @@ extension View {
     func glassSurface(cornerRadius: CGFloat = 20,
                       tint: Color = Color(hex: "#73FAFF") ?? .cyan,
                       tintOpacity: Double = 0.20,
-                      light: Double = 0.80,
                       isHighlighted: Bool = false) -> some View {
         modifier(GlassSurface(tint: tint, tintOpacity: tintOpacity,
-                              cornerRadius: cornerRadius, light: light,
+                              cornerRadius: cornerRadius,
                               isHighlighted: isHighlighted))
     }
 }

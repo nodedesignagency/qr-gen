@@ -155,29 +155,31 @@ bloom, wipe, spiral, develop and structure-first.
 
 ---
 
-## Adding the design assets
+## Design assets
 
-Both drop straight into `HalftoneQR/Resources/` — no project or plist edits.
+The first screen's artwork lives in the asset catalogue:
 
-**Background video** — name it `background.mp4` (`.mov` and `.m4v` also work).
-`VideoBackground` finds it by name, plays it muted and gapless through
-`AVPlayerLooper`, and fills the frame. With no file present it falls back to a
-still field in the same palette, so the layout is never broken by a missing
-asset. Keep it short and seamless; it ships inside the app.
+- `pool-background` — the water still behind screen one. Converted to JPEG on
+  the way in: it needs no alpha, and that took it from 1.74 MB to 0.21 MB.
+- `upload-mark` — the stacked-document mark in the upload card, trimmed to its
+  ink and generated at 1x/2x/3x for its 96pt frame.
 
-**SN Pro** — drop in `SNPro-Regular.otf`, `SNPro-Medium.otf`,
-`SNPro-Semibold.otf` and `SNPro-Bold.otf`. The project generates its Info.plist
-and so cannot express a `UIAppFonts` array; instead the app registers every font
-file it finds in its bundle at launch. Until the files exist, every call falls
-back to the system face at the same size, weight and tracking, so nothing
-reflows when they arrive.
+`AppBackground` prefers a video loop over the still, so dropping
+`background.mp4` into `HalftoneQR/Resources/` takes over with no code change
+(`.mov` and `.m4v` also work). Either way it lays the design's `000000` at 20%
+over the top, which is what keeps white type legible against the bright water.
 
-**Upload mark** — add the artwork to the asset catalogue as `upload-mark` and
-`UploadMark` prefers it over its drawn stand-in.
+**SN Pro** — drop `SNPro-Regular.otf`, `SNPro-Medium.otf`, `SNPro-Semibold.otf`
+and `SNPro-Bold.otf` into `HalftoneQR/Resources/`. The project generates its
+Info.plist and so cannot express a `UIAppFonts` array; instead the app registers
+every font file it finds in its bundle at launch. Until the files exist, every
+call falls back to the system face at the same size, weight and tracking, so
+nothing reflows when they arrive.
 
 > Resources are flattened into the bundle root, so two files anywhere under
 > `HalftoneQR/` that share a filename will fail the build with "Multiple
-> commands produce". Keep resource filenames unique.
+> commands produce". The asset catalogue is exempt — it compiles to a single
+> file — but loose resources are not. Keep their filenames unique.
 
 ## Building
 
