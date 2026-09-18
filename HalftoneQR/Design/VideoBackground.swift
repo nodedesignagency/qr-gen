@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import UIKit
 
 /// A silent, looping video filling the screen behind everything else.
 ///
@@ -61,7 +62,7 @@ private struct LoopingPlayerView: UIViewRepresentable {
     }
 
     final class PlayerView: UIView {
-        override static var layerClass: AnyClass { AVPlayerLayer.self }
+        override class var layerClass: AnyClass { AVPlayerLayer.self }
         private var looper: AVPlayerLooper?
         private var queuePlayer: AVQueuePlayer?
         private var foregroundObserver: NSObjectProtocol?

@@ -254,48 +254,35 @@ struct LatticeGlyph: View {
 }
 
 /// A finder pattern drawn at glyph scale, used as the "Eyes" control.
+///
+/// Strokes an `AnyShape` rather than carrying a type-erased *insettable* shape:
+/// `strokeBorder` would need one, `stroke` does not, and at 20pt the half-pixel
+/// difference between them is invisible.
 struct FinderGlyph: View {
     let style: FinderStyle
     var colour: Color = Theme.primary
 
     var body: some View {
         ZStack {
-            shape.strokeBorder(colour, lineWidth: 2.6).frame(width: 20, height: 20)
-            innerShape.fill(colour).frame(width: 7, height: 7)
+            outline
+                .stroke(colour, lineWidth: 2.6)
+                .frame(width: 18, height: 18)
+            outline
+                .fill(colour)
+                .frame(width: 7, height: 7)
         }
     }
 
-    private var shape: AnyInsettableShape {
+    private var outline: AnyShape {
         switch style {
-        case .square: return AnyInsettableShape(Rectangle())
-        case .rounded: return AnyInsettableShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        case .circle: return AnyInsettableShape(Circle())
+        case .square:
+            return AnyShape(Rectangle())
+        case .rounded:
+            return AnyShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        case .circle:
+            return AnyShape(Circle())
         }
     }
-
-    private var innerShape: AnyShape {
-        switch style {
-        case .square: return AnyShape(Rectangle())
-        case .rounded: return AnyShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-        case .circle: return AnyShape(Circle())
-        }
-    }
-}
-
-/// Type-erased insettable shape, so the finder glyph can switch outline styles.
-struct AnyInsettableShape: InsettableShape {
-    private let makePath: (CGRect) -> Path
-    private let makeInset: (CGFloat) -> AnyInsettableShape
-    private let inset: CGFloat
-
-    init<S: InsettableShape>(_ shape: S, inset: CGFloat = 0) {
-        self.inset = inset
-        self.makePath = { shape.inset(by: inset).path(in: $0) }
-        self.makeInset = { AnyInsettableShape(shape, inset: inset + $0) }
-    }
-
-    func path(in rect: CGRect) -> Path { makePath(rect) }
-    func inset(by amount: CGFloat) -> AnyInsettableShape { makeInset(amount) }
 }
 
 /// The bottom chrome. Controls live here; content never does.

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The glass surface from the design file.
 ///
@@ -35,7 +36,7 @@ struct GlassSurface: ViewModifier {
     private var surface: some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            shape.fill(.clear)
+            shape.fill(Color.clear)
                 .glassEffect(.regular.tint(tint.opacity(tintOpacity)), in: shape)
         } else {
             fallbackSurface
@@ -47,7 +48,7 @@ struct GlassSurface: ViewModifier {
 
     private var fallbackSurface: some View {
         ZStack {
-            shape.fill(.ultraThinMaterial)
+            shape.fill(Material.ultraThin)
             shape.fill(tint.opacity(tintOpacity))
         }
     }
@@ -59,19 +60,19 @@ struct GlassSurface: ViewModifier {
             shape.strokeBorder(
                 LinearGradient(
                     stops: [
-                        .init(color: .white.opacity(0.90 * light), location: 0.0),
-                        .init(color: .white.opacity(0.28 * light), location: 0.35),
-                        .init(color: .white.opacity(0.10 * light), location: 0.62),
-                        .init(color: .white.opacity(0.45 * light), location: 1.0),
+                        .init(color: Color.white.opacity(0.90 * light), location: 0.0),
+                        .init(color: Color.white.opacity(0.28 * light), location: 0.35),
+                        .init(color: Color.white.opacity(0.10 * light), location: 0.62),
+                        .init(color: Color.white.opacity(0.45 * light), location: 1.0),
                     ],
                     startPoint: .topLeading, endPoint: .bottomTrailing),
                 lineWidth: 1)
             shape.inset(by: 1.5)
-                .strokeBorder(.white.opacity(0.10 * light), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.10 * light), lineWidth: 1)
         }
         .overlay {
             if isHighlighted {
-                shape.strokeBorder(.white.opacity(0.55), lineWidth: 1.5)
+                shape.strokeBorder(Color.white.opacity(0.55), lineWidth: 1.5)
             }
         }
         .allowsHitTesting(false)
@@ -93,74 +94,93 @@ extension View {
 
 /// The stacked-document mark in the upload card.
 ///
-/// Drawn rather than shipped as an asset so it scales cleanly and picks up the
-/// surrounding tint. Replace with the real artwork by dropping it into the asset
-/// catalogue as `upload-mark` — `UploadMark` prefers it when present.
+/// Drawn rather than shipped as an asset so it scales cleanly. Replace it with
+/// the real artwork by adding `upload-mark` to the asset catalogue — this view
+/// prefers it whenever it resolves.
+///
+/// Laid out at a canonical 92pt and scaled, with every measurement a named
+/// constant. Inline arithmetic inside a ViewBuilder is what makes the Swift
+/// type-checker give up on a view like this.
 struct UploadMark: View {
     var size: CGFloat = 92
+
+    private static let canonical: CGFloat = 92
+    private static let sheetWidth: CGFloat = 52
+    private static let sheetHeight: CGFloat = 62
 
     var body: some View {
         Group {
             if UIImage(named: "upload-mark") != nil {
-                Image("upload-mark").resizable().scaledToFit()
+                Image("upload-mark")
+                    .resizable()
+                    .scaledToFit()
             } else {
                 drawn
+                    .frame(width: Self.canonical, height: Self.canonical)
+                    .scaleEffect(size / Self.canonical)
             }
         }
         .frame(width: size, height: size)
     }
 
     private var drawn: some View {
-        GeometryReader { geometry in
-            let side = min(geometry.size.width, geometry.size.height)
-            let sheet = side * 0.62
-            ZStack {
-                // Two sheets behind, fanned out.
-                sheetShape(width: sheet * 0.86, height: sheet * 1.06,
-                           fill: .white.opacity(0.55))
-                    .rotationEffect(.degrees(-9))
-                    .offset(x: -side * 0.10, y: -side * 0.045)
-                sheetShape(width: sheet * 0.92, height: sheet * 1.10,
-                           fill: .white.opacity(0.78))
-                    .rotationEffect(.degrees(-3))
-                    .offset(x: -side * 0.035, y: -side * 0.015)
-                // The front sheet, with the image glyph and the upload badge.
-                ZStack {
-                    sheetShape(width: sheet, height: sheet * 1.16, fill: .white)
-                    VStack(spacing: sheet * 0.07) {
-                        RoundedRectangle(cornerRadius: sheet * 0.05)
-                            .fill(.black.opacity(0.13))
-                            .frame(width: sheet * 0.42, height: sheet * 0.055)
-                        RoundedRectangle(cornerRadius: sheet * 0.05)
-                            .fill(.black.opacity(0.10))
-                            .frame(width: sheet * 0.28, height: sheet * 0.055)
-                    }
-                    .offset(y: -sheet * 0.36)
-                    Image(systemName: "photo.fill")
-                        .font(.system(size: sheet * 0.30))
-                        .foregroundStyle(.black.opacity(0.16))
-                        .offset(y: sheet * 0.06)
-                }
-                .offset(x: side * 0.06, y: side * 0.02)
+        ZStack {
+            sheet(width: Self.sheetWidth * 0.86,
+                  height: Self.sheetHeight * 0.92,
+                  opacity: 0.55)
+                .rotationEffect(.degrees(-9))
+                .offset(x: -10, y: -4)
 
-                Circle()
-                    .fill(.white)
-                    .frame(width: side * 0.26, height: side * 0.26)
-                    .overlay {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: side * 0.13, weight: .bold))
-                            .foregroundStyle(.black.opacity(0.42))
-                    }
-                    .offset(x: side * 0.20, y: side * 0.22)
+            sheet(width: Self.sheetWidth * 0.93,
+                  height: Self.sheetHeight * 0.96,
+                  opacity: 0.78)
+                .rotationEffect(.degrees(-3))
+                .offset(x: -4, y: -2)
+
+            frontSheet
+                .offset(x: 6, y: 2)
+
+            badge
+                .offset(x: 19, y: 21)
+        }
+        .shadow(color: Color.black.opacity(0.16), radius: 5, y: 2)
+    }
+
+    private var frontSheet: some View {
+        ZStack {
+            sheet(width: Self.sheetWidth, height: Self.sheetHeight, opacity: 1)
+            VStack(spacing: 4) {
+                rule(width: 22)
+                rule(width: 15)
             }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-            .shadow(color: .black.opacity(0.14), radius: side * 0.05, y: side * 0.02)
+            .offset(y: -21)
+            Image(systemName: "photo.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(Color.black.opacity(0.16))
+                .offset(y: 4)
         }
     }
 
-    private func sheetShape(width: CGFloat, height: CGFloat, fill: Color) -> some View {
-        RoundedRectangle(cornerRadius: width * 0.13, style: .continuous)
-            .fill(fill)
+    private var badge: some View {
+        Circle()
+            .fill(Color.white)
+            .frame(width: 24, height: 24)
+            .overlay {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.45))
+            }
+    }
+
+    private func sheet(width: CGFloat, height: CGFloat, opacity: Double) -> some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(Color.white.opacity(opacity))
             .frame(width: width, height: height)
+    }
+
+    private func rule(width: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+            .fill(Color.black.opacity(0.12))
+            .frame(width: width, height: 3)
     }
 }
