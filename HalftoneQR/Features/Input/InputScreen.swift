@@ -93,7 +93,9 @@ struct InputScreen: View {
         }
         .frame(height: 200)
         .frame(maxWidth: .infinity)
-        .glassSurface(cornerRadius: radius, isHighlighted: isTargeted)
+        // Only this surface carries the five inner shadows; in the design file
+        // they are switched off on the URL field below.
+        .glassSurface(cornerRadius: radius, innerGlow: true, isHighlighted: isTargeted)
         .onTapGesture {
             if model.logo == nil { isImporting = true }
         }
@@ -243,16 +245,28 @@ struct InputScreen: View {
         } label: {
             Text("Generate QR Code")
                 .snType(20, weight: .semibold)
-                .foregroundStyle(Color(hex: "#0E7684") ?? .teal)
+                .foregroundStyle(isReady ? (Color(hex: "#0E7684") ?? .teal)
+                                         : Color.white.opacity(0.7))
                 .frame(maxWidth: .infinity)
                 .frame(height: 64)
-                .background(Capsule().fill(.white))
+                .background {
+                    if isReady {
+                        Capsule().fill(.white)
+                    } else {
+                        // Until there is something to generate, the button stays
+                        // in the glass language and solidifies once it is ready.
+                        // A translucent white pill over bright water just reads
+                        // as a smudge.
+                        Color.clear.glassSurface(cornerRadius: 32)
+                    }
+                }
         }
         .buttonStyle(.plain)
-        .opacity(model.canContinueFromInput ? 1 : 0.55)
-        .disabled(!model.canContinueFromInput)
-        .animation(.easeOut(duration: 0.18), value: model.canContinueFromInput)
+        .disabled(!isReady)
+        .animation(.easeOut(duration: 0.2), value: isReady)
     }
+
+    private var isReady: Bool { model.canContinueFromInput }
 }
 
 /// Draws the silhouette the planner will actually consume, at thumbnail size.

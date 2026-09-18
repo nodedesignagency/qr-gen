@@ -3,19 +3,24 @@ import UIKit
 
 /// The glass surface from the design file.
 ///
-/// Mapping the Figma effect onto the platform: Figma's Glass (refraction,
-/// dispersion, splay) is its own renderer and has no direct SwiftUI equivalent.
-/// iOS 26's Liquid Glass is the real thing and is what the tinted fill is handed
-/// to. The five inner shadows in the file are what give the edge its lit rim, so
-/// they are reproduced as gradient rim strokes rather than as literal shadows —
-/// SwiftUI has no inner shadow primitive, and a stroke is both cheaper and
-/// sharper at these radii.
+/// Mapping Figma's glass onto the platform:
+///
+/// - The tint goes *into* the glass rather than sitting on top of it as its own
+///   fill. Layering 20% cyan over frosted glass is what made the first attempt
+///   read as flat milk instead of a pane you can see through.
+/// - The file's Frost is 4 out of 100 with Refraction at 80 — nearly clear
+///   glass. `Glass.regular` is the frostiest variant and was the wrong choice;
+///   `.clear` is the match. If it ever wants more diffusion, that is the dial.
+/// - The five inner shadows live in `InnerGlow`, and only the upload card asks
+///   for them: the file has them switched off on the URL field.
 struct GlassSurface: ViewModifier {
 
     /// `#73FAFF` at 20%, straight from the file.
     var tint: Color = Color(hex: "#73FAFF") ?? .cyan
     var tintOpacity: Double = 0.20
     var cornerRadius: CGFloat = 20
+    /// The five-inner-shadow stack. Off by default, as the URL field has it off.
+    var innerGlow: Bool = false
     var isHighlighted: Bool = false
 
     private var shape: RoundedRectangle {
@@ -24,10 +29,11 @@ struct GlassSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background {
-                ZStack {
-                    backdrop
-                    shape.fill(tintedFill)
+            .background { backdrop }
+            .overlay {
+                if innerGlow {
+                    InnerGlow(cornerRadius: cornerRadius)
+                        .allowsHitTesting(false)
                 }
             }
             .overlay { rim }
@@ -35,56 +41,37 @@ struct GlassSurface: ViewModifier {
             .contentShape(shape)
     }
 
-    /// The material itself, untinted — the tint is a separate fill above it, as
-    /// in the design file, so the inner shadows sit on the tint and not on glass.
     @ViewBuilder
     private var backdrop: some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             shape.fill(Color.clear)
-                .glassEffect(.regular, in: shape)
+                .glassEffect(.clear.tint(tint.opacity(tintOpacity)), in: shape)
         } else {
-            shape.fill(Material.ultraThin)
+            fallbackBackdrop
         }
         #else
-        shape.fill(Material.ultraThin)
+        fallbackBackdrop
         #endif
     }
 
-    /// The tint fill carrying the inner-shadow stack.
-    ///
-    /// The five shadows from the file, in listed order:
-    ///
-    ///     y -246  blur 69  white  1%
-    ///     y -158  blur 63  white  6%
-    ///     y  -89  blur 53  white 10%
-    ///     y  -39  blur 39  white 25%
-    ///     y  -10  blur 22  white 20%
-    ///
-    /// Every one is white and offset upward, so together they read as a glow
-    /// rising from the bottom inner edge — broad and nearly invisible at the top
-    /// of the stack, tight and bright at the bottom.
-    ///
-    /// Radii are the file's blur halved: Figma states blur the way CSS does, as
-    /// roughly twice the Gaussian sigma, while SwiftUI's shadow radius is about
-    /// the sigma itself.
-    private var tintedFill: some ShapeStyle {
-        tint.opacity(tintOpacity)
-            .shadow(.inner(color: .white.opacity(0.01), radius: 34.5, y: -246))
-            .shadow(.inner(color: .white.opacity(0.06), radius: 31.5, y: -158))
-            .shadow(.inner(color: .white.opacity(0.10), radius: 26.5, y: -89))
-            .shadow(.inner(color: .white.opacity(0.25), radius: 19.5, y: -39))
-            .shadow(.inner(color: .white.opacity(0.20), radius: 11.0, y: -10))
+    /// Below iOS 26 there is no refraction to be had, so a thin material carries
+    /// the tint instead.
+    private var fallbackBackdrop: some View {
+        ZStack {
+            shape.fill(Material.ultraThin)
+            shape.fill(tint.opacity(tintOpacity))
+        }
     }
 
-    /// The file lists no stroke; the visible edge comes from the glass itself.
-    /// This is a faint stand-in so the surface still reads as an edge on the
-    /// material fallback, plus the focus ring.
+    /// The file lists no stroke; the lit edge comes from the glass itself. This
+    /// hairline only has to hold the edge together on the material fallback, and
+    /// to carry the focus ring.
     private var rim: some View {
         ZStack {
             shape.strokeBorder(
                 LinearGradient(
-                    colors: [Color.white.opacity(0.30), Color.white.opacity(0.06)],
+                    colors: [Color.white.opacity(0.28), Color.white.opacity(0.05)],
                     startPoint: .top, endPoint: .bottom),
                 lineWidth: 0.75)
             if isHighlighted {
@@ -95,26 +82,88 @@ struct GlassSurface: ViewModifier {
     }
 }
 
+/// The five inner shadows from the design file, as a vertical gradient.
+///
+///     y -246  blur 69  white  1%
+///     y -158  blur 63  white  6%
+///     y  -89  blur 53  white 10%
+///     y  -39  blur 39  white 25%
+///     y  -10  blur 22  white 20%
+///
+/// All white, all offset upward, so together they read as a glow rising from the
+/// bottom inner edge. Rather than stacking five `ShadowStyle.inner` passes, the
+/// combined profile is evaluated directly: the same arithmetic in one gradient,
+/// and it cannot silently fail to draw over a transparent fill.
+///
+/// The profile is computed against the live height, which matters here. These
+/// offsets reach 246pt, so on the 200pt card the glow decays to almost nothing
+/// by the top, while on a 58pt field the two strongest would wash the whole
+/// surface evenly — which is exactly why the file switches them off there.
+struct InnerGlow: View {
+    var cornerRadius: CGFloat = 20
+
+    /// Opacity, blur and upward offset, in the file's order.
+    private static let shadows: [(opacity: Double, blur: Double, offset: Double)] = [
+        (0.01, 69, 246),
+        (0.06, 63, 158),
+        (0.10, 53, 89),
+        (0.25, 39, 39),
+        (0.20, 22, 10),
+    ]
+
+    var body: some View {
+        GeometryReader { geometry in
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(LinearGradient(stops: Self.stops(forHeight: geometry.size.height),
+                                     startPoint: .top, endPoint: .bottom))
+        }
+    }
+
+    /// Samples the combined profile down the surface.
+    static func stops(forHeight height: CGFloat) -> [Gradient.Stop] {
+        let samples = 14
+        return (0...samples).map { index in
+            let location = Double(index) / Double(samples)
+            let distance = Double(height) * (1 - location)
+            return Gradient.Stop(color: Color.white.opacity(alpha(atDistance: distance)),
+                                 location: location)
+        }
+    }
+
+    /// Alpha compositing of all five shadows at a distance from the bottom edge.
+    static func alpha(atDistance distance: Double) -> Double {
+        var transmitted = 1.0
+        for shadow in shadows {
+            // Each shadow fades out past its own offset, and its blur also bleeds
+            // back across the bottom edge, so the peak sits just inside it.
+            let ramp = min(max(0.5 - (distance - shadow.offset) / shadow.blur, 0), 1)
+            let edge = min(max(0.5 + distance / shadow.blur, 0), 1)
+            transmitted *= 1 - shadow.opacity * ramp * edge
+        }
+        return 1 - transmitted
+    }
+}
+
 extension View {
     /// The house glass surface, at the design file's values by default.
     func glassSurface(cornerRadius: CGFloat = 20,
                       tint: Color = Color(hex: "#73FAFF") ?? .cyan,
                       tintOpacity: Double = 0.20,
+                      innerGlow: Bool = false,
                       isHighlighted: Bool = false) -> some View {
         modifier(GlassSurface(tint: tint, tintOpacity: tintOpacity,
-                              cornerRadius: cornerRadius,
+                              cornerRadius: cornerRadius, innerGlow: innerGlow,
                               isHighlighted: isHighlighted))
     }
 }
 
 /// The stacked-document mark in the upload card.
 ///
-/// Drawn rather than shipped as an asset so it scales cleanly. Replace it with
-/// the real artwork by adding `upload-mark` to the asset catalogue — this view
-/// prefers it whenever it resolves.
+/// Prefers the artwork in the asset catalogue and falls back to a drawn stand-in
+/// so the layout never breaks if the asset is missing.
 ///
 /// Laid out at a canonical 92pt and scaled, with every measurement a named
-/// constant. Inline arithmetic inside a ViewBuilder is what makes the Swift
+/// constant — inline arithmetic inside a ViewBuilder is what makes the Swift
 /// type-checker give up on a view like this.
 struct UploadMark: View {
     var size: CGFloat = 92
@@ -140,15 +189,11 @@ struct UploadMark: View {
 
     private var drawn: some View {
         ZStack {
-            sheet(width: Self.sheetWidth * 0.86,
-                  height: Self.sheetHeight * 0.92,
-                  opacity: 0.55)
+            sheet(width: Self.sheetWidth * 0.86, height: Self.sheetHeight * 0.92, opacity: 0.55)
                 .rotationEffect(.degrees(-9))
                 .offset(x: -10, y: -4)
 
-            sheet(width: Self.sheetWidth * 0.93,
-                  height: Self.sheetHeight * 0.96,
-                  opacity: 0.78)
+            sheet(width: Self.sheetWidth * 0.93, height: Self.sheetHeight * 0.96, opacity: 0.78)
                 .rotationEffect(.degrees(-3))
                 .offset(x: -4, y: -2)
 
