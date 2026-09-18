@@ -8,11 +8,18 @@ import Foundation
 /// opacity — a module is either not placed yet or it is landing.
 enum Choreography: String, CaseIterable, Sendable, Identifiable {
     case scanline, radial, diagonal, spiral, develop, structureFirst
+    /// Bottom-up, used only by the print: each row lands just as it clears the
+    /// slot, so the paper comes out already printed. Not offered in the UI.
+    case feed
 
     var id: String { rawValue }
 
+    /// The orders offered to the user. `.feed` is internal to the print.
+    static var selectable: [Choreography] { allCases.filter { $0 != .feed } }
+
     var title: String {
         switch self {
+        case .feed: return "Feed"
         case .scanline: return "Scanline"
         case .radial: return "Bloom"
         case .diagonal: return "Wipe"
@@ -24,6 +31,7 @@ enum Choreography: String, CaseIterable, Sendable, Identifiable {
 
     var detail: String {
         switch self {
+        case .feed: return "Printed row by row as it feeds"
         case .scanline: return "Top to bottom, one row at a time"
         case .radial: return "Outward from the centre"
         case .diagonal: return "Corner to corner"
@@ -38,6 +46,9 @@ enum Choreography: String, CaseIterable, Sendable, Identifiable {
         let n = Double(max(count - 1, 1))
         let u = Double(x) / n, v = Double(y) / n
         switch self {
+        case .feed:
+            // Bottom first, because the card's lower edge clears the slot first.
+            return 1 - v
         case .scanline:
             return v
         case .radial:
@@ -63,7 +74,15 @@ enum Choreography: String, CaseIterable, Sendable, Identifiable {
     }
 
     /// How long a single module takes to land, as a share of the whole sequence.
-    var landingWindow: Double { self == .develop ? 0.16 : 0.22 }
+    var landingWindow: Double {
+        switch self {
+        case .develop: return 0.16
+        // Tight, so a row snaps crisply as it appears rather than fading up
+        // after it has already left the slot.
+        case .feed: return 0.11
+        default: return 0.22
+        }
+    }
 }
 
 extension RenderPlan {

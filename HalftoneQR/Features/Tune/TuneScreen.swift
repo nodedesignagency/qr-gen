@@ -138,8 +138,10 @@ extension FinderStyle {
 }
 
 extension Choreography {
+    /// Cycles the user-facing orders only.
     var next: Choreography {
-        let all = Choreography.allCases
-        return all[(all.firstIndex(of: self)! + 1) % all.count]
+        let all = Choreography.selectable
+        guard let index = all.firstIndex(of: self) else { return all[0] }
+        return all[(index + 1) % all.count]
     }
 }

@@ -270,7 +270,7 @@ final class AppModel {
             try? await Task.sleep(for: .milliseconds(215))
             Haptics.impact(.light, intensity: 0.32)
         }
-        try? await Task.sleep(for: .milliseconds(1_330))
+        try? await Task.sleep(for: .milliseconds(910))
 
         // The page takes the card over at exactly the frame the overlay left it.
         plan = result.plan
