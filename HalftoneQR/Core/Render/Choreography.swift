@@ -6,8 +6,11 @@ import Foundation
 /// Motion here is mechanical on purpose: modules snap into place in quantised
 /// steps with a small overshoot, rather than fading. Nothing ever changes
 /// opacity — a module is either not placed yet or it is landing.
+///
+/// `bigBang` is the one order that moves cells as well as scaling them: see
+/// `RenderPlan.bigBang(at:)`.
 enum Choreography: String, CaseIterable, Sendable, Identifiable {
-    case scanline, radial, diagonal, spiral, develop, structureFirst
+    case bigBang, scanline, radial, diagonal, spiral, develop, structureFirst
 
     var id: String { rawValue }
 
@@ -16,6 +19,7 @@ enum Choreography: String, CaseIterable, Sendable, Identifiable {
 
     var title: String {
         switch self {
+        case .bigBang: return "Big bang"
         case .scanline: return "Scanline"
         case .radial: return "Bloom"
         case .diagonal: return "Wipe"
@@ -27,6 +31,7 @@ enum Choreography: String, CaseIterable, Sendable, Identifiable {
 
     var detail: String {
         switch self {
+        case .bigBang: return "Out from one point, then into place"
         case .scanline: return "Top to bottom, one row at a time"
         case .radial: return "Outward from the centre"
         case .diagonal: return "Corner to corner"
@@ -41,6 +46,11 @@ enum Choreography: String, CaseIterable, Sendable, Identifiable {
         let n = Double(max(count - 1, 1))
         let u = Double(x) / n, v = Double(y) / n
         switch self {
+        case .bigBang:
+            // Not used for placement — the big bang keeps its own clock — but
+            // spelled out so it has a sensible order wherever one is asked for.
+            let hash = sin(Double(x) * 12.9898 + Double(y) * 78.233) * 43758.5453
+            return hash - hash.rounded(.down)
         case .scanline:
             return v
         case .radial:
@@ -68,7 +78,7 @@ enum Choreography: String, CaseIterable, Sendable, Identifiable {
     /// How long a single module takes to land, as a share of the whole sequence.
     var landingWindow: Double {
         switch self {
-        case .develop: return 0.16
+        case .develop, .bigBang: return 0.16
         default: return 0.22
         }
     }
@@ -82,6 +92,7 @@ extension RenderPlan {
     /// geometry is otherwise untouched, so an exported animation ends on exactly
     /// the same artwork the still export produces.
     func revealed(by choreography: Choreography, at time: Double) -> RenderPlan {
+        if choreography == .bigBang { return bigBang(at: time) }
         let clamped = min(max(time, 0), 1)
         guard clamped < 1 else { return self }
         let window = choreography.landingWindow
@@ -127,6 +138,93 @@ extension RenderPlan {
                           palette: palette, paperCornerRadius: paperCornerRadius,
                           cells: moved, finders: liveFinders,
                           emblem: clamped > 0.92 ? emblem : nil,
+                          moduleGrid: moduleGrid, functionGrid: functionGrid,
+                          payload: payload, version: version, mask: mask, correction: correction)
+    }
+}
+
+extension RenderPlan {
+
+    /// A copy of this plan part-way through the big bang.
+    ///
+    /// Everything starts at the centre. Through the first part of the sequence
+    /// it is thrown outward into a cloud — each cell along its own line from the
+    /// centre to a point past where it belongs, with some scatter, so the cloud
+    /// is a cloud and not a zoomed symbol. It hangs for a beat. Then, module by
+    /// module, the cells fall back in, overshoot, and snap into place. Timing is
+    /// per module, so a module's cells arrive together and the light centres
+    /// they carve out arrive with them. The finders come in whole, and last.
+    ///
+    /// Cells are only ever moved and scaled, never faded, and at `time >= 1`
+    /// this is the plan itself, so an animation ends on exactly the artwork the
+    /// still export produces.
+    func bigBang(at time: Double) -> RenderPlan {
+        let t = min(max(time, 0), 1)
+        guard t < 1 else { return self }
+
+        let centre = canvasUnits / 2
+        let bang = 0.22      // share of the sequence spent flying outward
+        let flight = 0.42    // how long a cell takes to fall back in
+
+        func hash(_ x: Double, _ y: Double, _ salt: Double) -> Double {
+            let value = sin(x * 12.9898 + y * 78.233 + salt * 37.719) * 43758.5453
+            return value - value.rounded(.down)
+        }
+        func easeOut(_ x: Double) -> Double { 1 - pow(1 - x, 3) }
+        func easeInOut(_ x: Double) -> Double { x * x * (3 - 2 * x) }
+
+        /// Where something that belongs at `home` is now, how big it is, and
+        /// whether it has arrived. `module` sets its timing, `key` its scatter.
+        func place(home: CGPoint, module: CGPoint, key: CGPoint,
+                   start fixedStart: Double? = nil) -> (position: CGPoint, scale: Double, arrived: Bool) {
+            let reach = 1.25 + 0.55 * hash(key.x, key.y, 1)
+            let spread = canvasUnits * 0.07
+            let far = CGPoint(x: centre + (home.x - centre) * reach + (hash(key.x, key.y, 2) - 0.5) * spread,
+                              y: centre + (home.y - centre) * reach + (hash(key.x, key.y, 3) - 0.5) * spread)
+            if t < bang {
+                let u = easeOut(t / bang)
+                return (CGPoint(x: centre + (far.x - centre) * u, y: centre + (far.y - centre) * u),
+                        0.55 * u, false)
+            }
+            let start = fixedStart ?? bang + 0.02 + (1 - bang - flight - 0.02) * hash(module.x, module.y, 4)
+            let u = min(max((t - start) / flight, 0), 1)
+            let move = easeInOut(min(u / 0.85, 1))
+            let position = CGPoint(x: far.x + (home.x - far.x) * move, y: far.y + (home.y - far.y) * move)
+            // Grows on the way in, overshoots, and snaps back in one step.
+            let scale = u < 0.85 ? 0.55 + 0.57 * move : (u < 0.93 ? 1.12 : 1.0)
+            return (position, scale, u >= 0.85)
+        }
+
+        var moved: [Cell] = []
+        moved.reserveCapacity(cells.count)
+        for cell in cells {
+            let module = CGPoint(x: (cell.centre.x - quietZone).rounded(.down),
+                                 y: (cell.centre.y - quietZone).rounded(.down))
+            let placed = place(home: cell.centre, module: module, key: cell.centre)
+            // A knocked-out centre is paper on paper: it means nothing in flight
+            // and arrives with the module it belongs to.
+            if cell.role == .dataKnockout && !placed.arrived { continue }
+            guard placed.scale > 0.01 else { continue }
+            var next = cell
+            next.centre = placed.position
+            next.size = cell.size * placed.scale
+            moved.append(next)
+        }
+
+        let liveFinders: [Finder] = finders.compactMap { finder in
+            let home = CGPoint(x: finder.origin.x + 3.5, y: finder.origin.y + 3.5)
+            let placed = place(home: home, module: home, key: home, start: 0.56)
+            guard placed.scale > 0.01 else { return nil }
+            var next = finder
+            next.origin = CGPoint(x: placed.position.x - 3.5, y: placed.position.y - 3.5)
+            next.scale = placed.scale
+            return next
+        }
+
+        return RenderPlan(moduleCount: moduleCount, quietZone: quietZone, subdivision: subdivision,
+                          palette: palette, paperCornerRadius: paperCornerRadius,
+                          cells: moved, finders: liveFinders,
+                          emblem: t > 0.92 ? emblem : nil,
                           moduleGrid: moduleGrid, functionGrid: functionGrid,
                           payload: payload, version: version, mask: mask, correction: correction)
     }

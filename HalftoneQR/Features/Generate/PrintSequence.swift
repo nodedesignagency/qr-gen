@@ -140,10 +140,10 @@ private func spring(_ x: Double, overshoot: Double) -> Double {
 ///    first, then its lower edge, each on its own spring, with a small pitch as
 ///    the lower edge overshoots and lands. That is what makes it read as liquid
 ///    settling rather than a rectangle being scaled.
-/// 4. **Burst.** The symbol develops as a shockwave from the card's centre: a
-///    ring in the artwork's colour sweeps outward and each module snaps in as
-///    it passes, hot, and cools to the ink. The finders are at the corners, so
-///    they land last.
+/// 4. **Big bang.** The symbol is made from one point: its cells are thrown
+///    out of the card's centre into a cloud, hang, then fall back in module by
+///    module and snap into place, the three finders whole and last. See
+///    `RenderPlan.bigBang(at:)`.
 ///
 /// Tuned in `Tools/liquid_proto.py`, which draws the same geometry frame by
 /// frame; the constants here are the ones that were read off it.
@@ -164,8 +164,8 @@ enum LiquidTimeline {
     /// When the real card view takes over from the drawn blob.
     static let handoverAt = 0.34
     static let handoverWidth = 0.05
-    static let developAt = 0.50
-    static let developEnd = 0.84
+    static let developAt = 0.48
+    static let developEnd = 0.94
 
     static let cardRadius: Double = 24
     /// The neck snaps once it is thinner than this, rather than thinning to a
@@ -533,7 +533,7 @@ struct PrintSequenceOverlay: View {
     let phase: GeneratePhase
     let plan: RenderPlan?
     let choreography: Choreography
-    /// The artwork's colour: the island's charge glow and the burst.
+    /// The artwork's colour, for the island's charge glow.
     let brand: RGB
     /// How far the wait had swelled the drop when the print began.
     let charge: Double
@@ -615,43 +615,26 @@ struct PrintSequenceOverlay: View {
             }
 
             if frame.cardOpacity > 0, let plan {
-                PrintedCard(plan: plan, choreography: choreography,
-                            progress: frame.develop, cornerRadius: frame.cornerRadius,
-                            burst: brand)
-                    .frame(width: frame.rect.width, height: frame.rect.height)
-                    .rotation3DEffect(.degrees(-frame.tilt), axis: (x: 1, y: 0, z: 0),
-                                      anchor: .top, perspective: 0.4)
-                    .position(x: frame.rect.midX, y: frame.rect.midY)
-                    .shadow(color: .black.opacity(0.18 * frame.shadow), radius: 18, y: 9)
-                    .opacity(frame.cardOpacity)
+                // The paper is the card, clipped. The cells are drawn over it
+                // with room on every side, because the big bang throws them
+                // past the card's edge and back.
+                let bleed = frame.rect.width * 0.6
+                ZStack {
+                    plan.palette.paper.swiftUIColor
+                        .frame(width: frame.rect.width, height: frame.rect.height)
+                        .clipShape(RoundedRectangle(cornerRadius: frame.cornerRadius, style: .continuous))
+                        .shadow(color: .black.opacity(0.18 * frame.shadow), radius: 18, y: 9)
+                    PlanResolveCanvas(plan: plan, progress: frame.develop, choreography: choreography,
+                                      bleed: bleed, drawsPaper: false)
+                        .frame(width: frame.rect.width + bleed * 2, height: frame.rect.height + bleed * 2)
+                }
+                .rotation3DEffect(.degrees(-frame.tilt), axis: (x: 1, y: 0, z: 0),
+                                  anchor: UnitPoint(x: 0.5, y: bleed / (frame.rect.height + bleed * 2)),
+                                  perspective: 0.4)
+                .position(x: frame.rect.midX, y: frame.rect.midY)
+                .opacity(frame.cardOpacity)
             }
         }
-    }
-}
-
-/// The card: the real artwork, developing module by module on its paper.
-///
-/// This is the same plan the exporter writes, so what is watched developing is
-/// byte-identical to the PNG that comes out the other end. The paper is laid
-/// down here as well as by the canvas, so the card's corners are its own and
-/// not the plan's — the plan's radius is in module units and varies with the
-/// symbol's version.
-struct PrintedCard: View {
-    let plan: RenderPlan
-    let choreography: Choreography
-    let progress: Double
-    var cornerRadius: Double = LiquidTimeline.cardRadius
-    /// When set, the modules land hot in this colour and a radial order draws
-    /// its front as a ring. The generate animation's burst.
-    var burst: RGB? = nil
-
-    var body: some View {
-        ZStack {
-            plan.palette.paper.swiftUIColor
-            ModuleResolveCanvas(plan: plan, progress: progress, choreography: choreography,
-                                burst: burst)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
 

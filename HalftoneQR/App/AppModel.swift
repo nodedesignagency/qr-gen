@@ -49,8 +49,7 @@ final class AppModel {
     // MARK: Render
 
     var config = RenderConfig()
-    /// Radial by default: the burst's ring is the front of this order.
-    var choreography: Choreography = .radial
+    var choreography: Choreography = .bigBang
     private(set) var plan: RenderPlan?
     private(set) var isRendering = false
     private(set) var renderError: String?
@@ -74,8 +73,9 @@ final class AppModel {
     private(set) var printStart: Date = .now
     /// How far the wait had swelled the drop when the print began.
     private(set) var generateCharge: Double = 0
-    /// True from the moment the card touches down. The controls arrive on it.
-    private(set) var cardLanded = false
+    /// True once the symbol has formed on the landed card. The controls arrive
+    /// on it, so the big bang has the page to itself.
+    private(set) var cardSettled = false
 
     // MARK: Export
 
@@ -239,7 +239,7 @@ final class AppModel {
 
         generatingPlan = withdrawn.plan
         printStart = .now
-        cardLanded = false
+        cardSettled = false
         generatePhase = .retracting
         Task { [weak self] in
             // A soft tick as the drop rejoins the island.
@@ -279,7 +279,7 @@ final class AppModel {
     /// does, because the loop's duration depends on the artwork and a fixed
     /// animation cannot cover a variable wait honestly. Once there is a verified
     /// symbol, one continuous timeline lets the drop go, spreads it into the
-    /// card, and bursts the symbol onto it.
+    /// card, and makes the symbol on it.
     ///
     /// Nothing navigates. The card lands in the frame this page already keeps for
     /// it, and the page becomes the result.
@@ -292,7 +292,7 @@ final class AppModel {
         let palette = currentPalette
 
         printStart = .now
-        cardLanded = false
+        cardSettled = false
         generatePhase = .working
         Haptics.impact(.soft, intensity: 0.5)
 
@@ -318,8 +318,8 @@ final class AppModel {
         generatePhase = .printing
 
         // The haptics follow the liquid: a soft tick as the neck snaps, a firm
-        // one as the card lands, a ratchet as the burst crosses the card, a
-        // harder one as the finders punch in, and the success once it is done.
+        // one as the card lands, then the bang and its ratchet, and the success
+        // once it is done.
         await sleep(untilBeat: LiquidTimeline.breakAt)
         guard generatePhase == .printing else { return }
         Haptics.impact(.soft, intensity: 0.55)
@@ -327,18 +327,23 @@ final class AppModel {
         await sleep(untilBeat: LiquidTimeline.landAt)
         guard generatePhase == .printing else { return }
         Haptics.impact(.rigid, intensity: 0.75)
-        cardLanded = true
 
-        let burst = LiquidTimeline.developAt
-        let burstSpan = LiquidTimeline.developEnd - LiquidTimeline.developAt
-        for (share, intensity) in [(0.30, 0.45), (0.55, 0.6)] {
-            await sleep(untilBeat: burst + share * burstSpan)
+        // The bang, a ratchet as the cells fall in, and a harder tick as the
+        // finders lock.
+        let bang = LiquidTimeline.developAt
+        let span = LiquidTimeline.developEnd - LiquidTimeline.developAt
+        await sleep(untilBeat: bang)
+        guard generatePhase == .printing else { return }
+        Haptics.impact(.rigid, intensity: 0.9)
+        for (share, intensity) in [(0.55, 0.45), (0.72, 0.6)] {
+            await sleep(untilBeat: bang + share * span)
             guard generatePhase == .printing else { return }
             Haptics.impact(.light, intensity: intensity)
         }
-        await sleep(untilBeat: burst + 0.8 * burstSpan)
+        await sleep(untilBeat: bang + 0.96 * span)
         guard generatePhase == .printing else { return }
         Haptics.impact(.medium, intensity: 0.9)
+        cardSettled = true
 
         await sleep(untilBeat: 1)
         guard generatePhase == .printing else { return }
@@ -487,7 +492,7 @@ final class AppModel {
         verifiedRender = nil
         variants = []
         exportBundle = nil
-        cardLanded = false
+        cardSettled = false
         generateCharge = 0
         stage = .input
     }

@@ -146,6 +146,17 @@ struct MotionGlyph: View {
 
     var body: some View {
         switch choreography {
+        case .bigBang:
+            ZStack {
+                ForEach(0..<6, id: \.self) { index in
+                    Capsule().fill(colour.opacity(0.7))
+                        .frame(width: 2.2, height: 6)
+                        .offset(y: -8)
+                        .rotationEffect(.degrees(Double(index) * 60))
+                }
+                Circle().fill(colour).frame(width: 6, height: 6)
+            }
+            .frame(width: 22, height: 22)
         case .scanline:
             VStack(spacing: 4) {
                 ForEach(0..<3, id: \.self) { index in

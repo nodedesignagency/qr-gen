@@ -30,9 +30,10 @@ struct InputScreen: View {
         model.generatePhase.isMovingCard || model.verifiedRender != nil
     }
 
-    /// The controls arrive as the card lands, not as the drop lets go.
+    /// The controls arrive once the symbol has formed, so the big bang has the
+    /// page to itself.
     private var controlsShown: Bool {
-        model.cardLanded || (model.generatePhase == .idle && model.verifiedRender != nil)
+        model.cardSettled || (model.generatePhase == .idle && model.verifiedRender != nil)
     }
 
     var body: some View {
@@ -60,8 +61,7 @@ struct InputScreen: View {
                     customiseControls
                         .frame(maxWidth: surfaceWidth)
                         .padding(.top, 14)
-                        // They rise into place on the landing, as if the card
-                        // pushed them up.
+                        // They rise into place as the last cells lock in.
                         .opacity(controlsShown ? 1 : 0)
                         .offset(y: controlsShown ? 0 : 28)
                         .animation(.spring(response: 0.5, dampingFraction: 0.72), value: controlsShown)

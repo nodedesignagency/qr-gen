@@ -2,10 +2,10 @@ import SwiftUI
 
 /// The hero: the symbol on its paper card, big and centred with room around it.
 ///
-/// While the resolve animation runs, the symbol is drawn live at module
-/// resolution, which is cheap enough to hold a steady frame rate on the densest
-/// symbol the app can make. When it finishes, the full-resolution halftone
-/// bitmap takes over and the detail sharpens in rather than fading.
+/// While the resolve animation runs, the symbol is drawn live from the real
+/// plan geometry — the same cells the exporter writes. When it finishes, the
+/// rendered bitmap takes over in the same frame, and because the two are the
+/// same geometry the hand-over is invisible.
 ///
 /// The animation is driven by `TimelineView` off a start date, not by stepping a
 /// published value on the main actor — that stutters and drifts.
@@ -68,8 +68,8 @@ struct QRCard: View {
                         let elapsed = timeline.date.timeIntervalSince(startedAt)
                         let progress = min(max(elapsed / duration, 0), 1)
                         if progress < 1 {
-                            ModuleResolveCanvas(plan: plan, progress: progress,
-                                                choreography: choreography)
+                            PlanResolveCanvas(plan: plan, progress: progress,
+                                              choreography: choreography)
                         } else {
                             settled(plan: plan)
                         }
@@ -96,87 +96,57 @@ struct QRCard: View {
         } else {
             // The bitmap is still rendering; the live canvas stands in so there
             // is never an empty frame.
-            ModuleResolveCanvas(plan: plan, progress: 1, choreography: choreography)
+            PlanResolveCanvas(plan: plan, progress: 1, choreography: choreography)
         }
     }
 }
 
-/// Module-resolution live drawing.
+/// Live drawing of a plan part-way through its resolve, at the real geometry.
 ///
-/// Cells are grouped by how far through their landing they are, and each group
-/// is filled as a single path, so a 61-module symbol costs a few path fills per
-/// frame instead of several thousand. The grouping is also what lets the burst
-/// colour a module by its heat without a fill per module.
-struct ModuleResolveCanvas: View {
+/// Draws `plan.revealed(by:at:)` — the same primitives the exporter writes, at
+/// their real shapes and sizes — so the last frame *is* the still, and nothing
+/// changes style when the rendered bitmap takes over. Each colour group is one
+/// path fill, so a dense symbol costs a handful of fills per frame.
+///
+/// `bleed` is extra room around the card, on every side: the big bang throws
+/// cells past the card's edge and back, and they need somewhere to be.
+struct PlanResolveCanvas: View {
     let plan: RenderPlan
     let progress: Double
     let choreography: Choreography
-    /// When set, modules land hot in this colour and cool to the ink, and a
-    /// radial order draws its front as a ring. The generate animation's burst;
-    /// the preview and the export leave it nil.
-    var burst: RGB? = nil
-
-    private static let buckets = 10
+    var bleed: CGFloat = 0
+    /// Whether to lay the paper down here. The overlay keeps its paper in the
+    /// card underneath, clipped, and has this draw the cells alone.
+    var drawsPaper: Bool = true
 
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: false) { context, size in
-            let scale = size.width / plan.canvasUnits
+            let side = size.width - bleed * 2
+            let scale = side / plan.canvasUnits
+            let transform = CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: bleed, ty: bleed)
 
-            context.fill(Path(roundedRect: CGRect(origin: .zero, size: size),
-                              cornerRadius: plan.paperCornerRadius * scale,
-                              style: .continuous),
-                         with: .color(plan.palette.paper.swiftUIColor))
-
-            let count = plan.moduleCount
-            let window = choreography.landingWindow
-            let span = 1 - window
-            var paths = [Path](repeating: Path(), count: Self.buckets)
-
-            for y in 0..<count {
-                for x in 0..<count where plan.moduleGrid[y * count + x] {
-                    let isFunction = plan.functionGrid[y * count + x]
-                    let delay = choreography.delay(x: x, y: y, count: count,
-                                                   isFunction: isFunction) * span
-                    let raw = min(max((progress - delay) / window, 0), 1)
-                    guard raw > 0.02 else { continue }
-                    // Quantised overshoot, matching the exported animation exactly.
-                    let stepped = (raw * 4).rounded(.down) / 4
-                    let landed = stepped < 0.75 ? stepped * 1.12 : 1.12 - (stepped - 0.75) * 0.48
-                    let bucket = min(Int(raw * Double(Self.buckets - 1)), Self.buckets - 1)
-                    let blockSize = landed * scale
-                    let cx = (plan.quietZone + Double(x) + 0.5) * scale
-                    let cy = (plan.quietZone + Double(y) + 0.5) * scale
-                    paths[bucket].addRect(CGRect(x: cx - blockSize / 2, y: cy - blockSize / 2,
-                                                 width: blockSize, height: blockSize))
-                }
+            // The bang: light at the centre, gone as the cloud spreads.
+            if choreography == .bigBang, progress > 0.001, progress < 0.30 {
+                let u = progress / 0.30
+                let radius = side * (0.08 + 0.55 * u)
+                let centre = CGPoint(x: size.width / 2, y: size.height / 2)
+                let light = plan.palette.ink.swiftUIColor
+                context.fill(Path(ellipseIn: CGRect(x: centre.x - radius, y: centre.y - radius,
+                                                    width: radius * 2, height: radius * 2)),
+                             with: .radialGradient(Gradient(colors: [light.opacity(0.5 * (1 - u)),
+                                                                     light.opacity(0)]),
+                                                   center: centre, startRadius: 0, endRadius: radius))
             }
 
-            let ink = plan.palette.ink
-            let hot = burst?.mixed(with: .paper, amount: 0.55)
-            for (index, path) in paths.enumerated() where !path.isEmpty {
-                var colour = ink
-                if let hot {
-                    // Hot as it lands, the ink once it has settled.
-                    let heat = pow(1 - Double(index) / Double(Self.buckets - 1), 1.5)
-                    colour = ink.mixed(with: hot, amount: heat)
-                }
-                context.fill(path, with: .color(colour.swiftUIColor))
-            }
-
-            // The front of a radial burst, as a ring: the delay landing right
-            // now, turned back into a radius. It runs out through the corners.
-            if let burst, choreography == .radial, progress > 0.001, progress < 0.999 {
-                let front = max((progress - window / 2) / span, 0)
-                let radius = front * 0.7071 * Double(count - 1) * scale
-                let box = CGRect(x: size.width / 2 - radius, y: size.height / 2 - radius,
-                                 width: radius * 2, height: radius * 2)
-                let ring = Path(ellipseIn: box)
-                let tint = burst.swiftUIColor
-                context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 9))
-                    layer.stroke(ring, with: .color(tint.opacity(0.55)), lineWidth: 16)
-                }
-                context.stroke(ring, with: .color(tint.opacity(0.9)), lineWidth: 1.5)
+            let revealed = plan.revealed(by: choreography, at: progress)
+            for (index, group) in PlanFlattener.flatten(revealed).enumerated() {
+                // The paper field is always the first group.
+                if index == 0 && !drawsPaper { continue }
+                let path = Path(PathGeometry.cgPath(for: group.primitives, transform: transform))
+                // Even-odd lets the finder rings carve their own holes, and is
+                // identical to non-zero for the grid shapes, which never overlap.
+                context.fill(path, with: .color(group.colour.swiftUIColor),
+                             style: FillStyle(eoFill: true))
             }
         }
     }

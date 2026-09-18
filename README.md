@@ -65,12 +65,17 @@ symbol the bulge hangs into a drop, stretches into a pill and its neck snaps.
 What the island keeps springs back; two satellite droplets chase the card and
 are taken into its edge. The freed drop lightens and spreads into the card —
 its width first, then its lower edge, each on its own spring, pitching as the
-lower edge overshoots and lands — and the symbol bursts onto it: a ring in the
-artwork's colour sweeps out from the centre and each module snaps in as it
-passes, hot, cooling to the ink. The finders are at the corners, so they land
-last. The haptics follow the liquid: a soft tick at the snap, a firm one on
-landing, a ratchet as the burst crosses the card, a harder one as the finders
-punch in.
+lower edge overshoots and lands — and the symbol is made on it from one point.
+Every cell the exporter will write is thrown out of the card's centre into a
+cloud, past where it belongs and with some scatter; the cloud hangs for a beat;
+then module by module the cells fall back in, overshoot, and snap into place,
+the three finders whole and last. The haptics follow the liquid: a soft tick at
+the snap, a firm one on landing, the bang, a ratchet as the cells fall in, and
+a harder tick as the finders lock.
+
+The resolve is drawn live from the plan's real geometry — the same cells, at
+the same shapes and sizes, as the still — so the last frame *is* the export
+and nothing changes style when the rendered bitmap takes over.
 
 The page becomes the customise page as the card touches down: the inputs give
 way and the controls rise into place under the card. Tap Edit and the same
@@ -193,8 +198,9 @@ matters: `Glass` does not exist in SDKs before iOS 26, so a runtime check alone
 would not build.
 
 Motion is mechanical: modules land in quantised steps with a small overshoot and
-snap back. Nothing ever changes opacity. Six choreographies ship — scanline,
-bloom, wipe, spiral, develop and structure-first.
+snap back. Nothing ever changes opacity. Seven choreographies ship — big bang,
+scanline, bloom, wipe, spiral, develop and structure-first. Big bang is the only
+one that moves cells as well as scaling them.
 
 ---
 

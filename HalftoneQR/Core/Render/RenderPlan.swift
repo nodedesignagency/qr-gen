@@ -115,6 +115,9 @@ struct RenderPlan: Sendable, Identifiable {
         /// Top-left of the 7x7 pattern, in module units.
         var origin: CGPoint
         var style: FinderStyle
+        /// Drawn this much larger or smaller about its centre. 1 at rest; the
+        /// resolve animations bring the finders in through it.
+        var scale: Double = 1
     }
 
     struct Emblem: Sendable {
@@ -197,20 +200,24 @@ enum PlanFlattener {
     }
 
     /// A finder is a 7x7 frame with a 3x3 pupil, drawn as two shapes so the
-    /// light separator ring stays crisp at any size.
+    /// light separator ring stays crisp at any size. `scale` grows or shrinks
+    /// the whole pattern about its centre, radii included.
     static func primitives(for finder: RenderPlan.Finder) -> [Primitive] {
-        let outer = CGRect(x: finder.origin.x, y: finder.origin.y, width: 7, height: 7)
-        let inner = outer.insetBy(dx: 1, dy: 1)
-        let pupil = outer.insetBy(dx: 2, dy: 2)
+        let s = finder.scale
+        let side = 7 * s
+        let centre = CGPoint(x: finder.origin.x + 3.5, y: finder.origin.y + 3.5)
+        let outer = CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side)
+        let inner = outer.insetBy(dx: s, dy: s)
+        let pupil = outer.insetBy(dx: 2 * s, dy: 2 * s)
         switch finder.style {
         case .square:
             return [.ring(outer: outer, inner: inner, outerRadius: 0, innerRadius: 0),
                     .rect(pupil)]
         case .rounded:
-            return [.ring(outer: outer, inner: inner, outerRadius: 2.0, innerRadius: 1.25),
-                    .roundedRect(pupil, radius: 0.9)]
+            return [.ring(outer: outer, inner: inner, outerRadius: 2.0 * s, innerRadius: 1.25 * s),
+                    .roundedRect(pupil, radius: 0.9 * s)]
         case .circle:
-            return [.ring(outer: outer, inner: inner, outerRadius: 3.5, innerRadius: 2.5),
+            return [.ring(outer: outer, inner: inner, outerRadius: 3.5 * s, innerRadius: 2.5 * s),
                     .ellipse(pupil)]
         }
     }
