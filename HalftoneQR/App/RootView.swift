@@ -9,34 +9,45 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            Theme.background.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                StageHeader(title: title,
-                            step: model.stage.rawValue,
-                            stepCount: Stage.allCases.count,
-                            trailingLabel: "Reset",
-                            showsTrailing: model.stage != .input,
-                            onTrailing: { model.startOver() })
-                    .padding(.horizontal, Theme.gutter)
-                    .padding(.top, 4)
-                    .padding(.bottom, 20)
-
-                stageContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                BottomBar {
-                    VStack(spacing: 20) {
-                        controls
-                        primaryAction
-                    }
-                }
+            // The input screen is built to the design file and owns its whole
+            // canvas, video background included. The later stages still run on
+            // the dark chrome until they are redrawn in turn.
+            if model.stage == .input {
+                InputScreen(model: model)
+            } else {
+                Theme.background.ignoresSafeArea()
+                darkStage
             }
         }
         .environment(\.signalAccent, model.accentColour)
         .preferredColorScheme(.dark)
         .tint(model.accentColour)
         .animation(.easeOut(duration: 0.24), value: model.stage)
+    }
+
+    /// Header, content and bottom bar, as the remaining stages still expect.
+    private var darkStage: some View {
+        VStack(spacing: 0) {
+            StageHeader(title: title,
+                        step: model.stage.rawValue,
+                        stepCount: Stage.allCases.count,
+                        trailingLabel: "Reset",
+                        showsTrailing: true,
+                        onTrailing: { model.startOver() })
+                .padding(.horizontal, Theme.gutter)
+                .padding(.top, 4)
+                .padding(.bottom, 20)
+
+            stageContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            BottomBar {
+                VStack(spacing: 20) {
+                    controls
+                    primaryAction
+                }
+            }
+        }
     }
 
     private var title: String {
@@ -54,7 +65,7 @@ struct RootView: View {
     private var stageContent: some View {
         switch model.stage {
         case .input:
-            InputScreen(model: model)
+            EmptyView()
         case .tune:
             TuneScreen(model: model)
         case .verify:
@@ -106,7 +117,7 @@ struct RootView: View {
 
     private var primaryTitle: String {
         switch model.stage {
-        case .input: return "Generate"
+        case .input: return "Generate"   // input draws its own action
         case .tune: return "Verify"
         case .verify: return model.verification?.passed == true ? "Export" : "Verifying"
         case .export: return model.exportBundle == nil ? "Write files" : "Done"
