@@ -31,6 +31,7 @@ struct InputScreen: View {
                 uploadSurface
                     .frame(maxWidth: surfaceWidth)
                     .padding(.bottom, 22)
+                    .animation(.easeOut(duration: 0.28), value: showsResultSlot)
 
                 urlSurface
                     .frame(maxWidth: surfaceWidth)
@@ -87,23 +88,39 @@ struct InputScreen: View {
 
     // MARK: - Upload
 
+    /// The page keeps one slot. Before generating it is the upload card; from the
+    /// moment printing starts it is the square the card will land in, so the
+    /// overlay has somewhere exact to hand over to and nothing jumps.
+    private var showsResultSlot: Bool {
+        model.generatePhase == .printing || model.verifiedRender != nil
+    }
+
+    @ViewBuilder
     private var uploadSurface: some View {
-        Group {
-            if model.logo == nil { emptyUpload } else { loadedUpload }
+        if showsResultSlot {
+            ZStack {
+                if let plan = model.plan {
+                    PrintedCard(plan: plan, choreography: model.choreography, progress: 1)
+                }
+            }
+            .frame(width: surfaceWidth, height: surfaceWidth)
+            .cardSlot()
+        } else {
+            Group {
+                if model.logo == nil { emptyUpload } else { loadedUpload }
+            }
+            .frame(height: 200)
+            .frame(maxWidth: .infinity)
+            .glassSurface(cornerRadius: radius, innerGlow: true, isHighlighted: isTargeted)
+            .onTapGesture {
+                if model.logo == nil { isImporting = true }
+            }
+            .dropDestination(for: Data.self) { items, _ in
+                guard let data = items.first, let image = ImageDecoder.decode(data) else { return false }
+                Task { await model.setLogo(image, name: "Dropped mark") }
+                return true
+            } isTargeted: { isTargeted = $0 }
         }
-        .frame(height: 200)
-        .frame(maxWidth: .infinity)
-        // Only this surface carries the five inner shadows; in the design file
-        // they are switched off on the URL field below.
-        .glassSurface(cornerRadius: radius, innerGlow: true, isHighlighted: isTargeted)
-        .onTapGesture {
-            if model.logo == nil { isImporting = true }
-        }
-        .dropDestination(for: Data.self) { items, _ in
-            guard let data = items.first, let image = ImageDecoder.decode(data) else { return false }
-            Task { await model.setLogo(image, name: "Dropped mark") }
-            return true
-        } isTargeted: { isTargeted = $0 }
     }
 
     private var emptyUpload: some View {
@@ -241,9 +258,13 @@ struct InputScreen: View {
 
     private var generateButton: some View {
         Button {
-            Task { await model.generate() }
+            if model.verifiedRender != nil {
+                model.advance()
+            } else {
+                Task { await model.generate() }
+            }
         } label: {
-            Text("Generate QR Code")
+            Text(buttonTitle)
                 .snType(20, weight: .semibold)
                 .foregroundStyle(isReady ? (Color(hex: "#0E7684") ?? .teal)
                                          : Color.white.opacity(0.7))
@@ -262,8 +283,13 @@ struct InputScreen: View {
                 }
         }
         .buttonStyle(.plain)
-        .disabled(!isReady)
+        .disabled(!isReady || model.generatePhase.isRunning)
         .animation(.easeOut(duration: 0.2), value: isReady)
+    }
+
+    private var buttonTitle: String {
+        if model.generatePhase.isRunning { return "Generating" }
+        return model.verifiedRender != nil ? "Customise" : "Generate QR Code"
     }
 
     private var isReady: Bool { model.canContinueFromInput }

@@ -69,9 +69,10 @@ final class AppModel {
     // MARK: Generate animation
 
     private(set) var generatePhase: GeneratePhase = .idle
-    /// The plan currently on the print. Swapped per pass so each develop shows
-    /// the render that pass actually produced.
+    /// The plan on the print.
     private(set) var generatingPlan: RenderPlan?
+    /// Clock origin for the print timeline.
+    private(set) var printStart: Date = .now
 
     // MARK: Export
 
@@ -109,6 +110,7 @@ final class AppModel {
             lengthNotice = nil
         }
         siteFetchFailed = false
+        discardGeneratedResult()
     }
 
     /// Payload actually encoded — the normalised form, so "nda.co" becomes a
@@ -132,6 +134,7 @@ final class AppModel {
             return (silhouette, analysis, colour)
         }.value
 
+        discardGeneratedResult()
         silhouette = extracted.0
         analysis = extracted.1
         if let colour = extracted.2 {
@@ -141,6 +144,7 @@ final class AppModel {
     }
 
     func clearLogo() {
+        discardGeneratedResult()
         logo = nil
         logoName = nil
         silhouette = nil
@@ -206,19 +210,31 @@ final class AppModel {
         }
     }
 
+    /// Drops a generated symbol once its inputs change, so the page never shows a
+    /// code that no longer matches what is on screen.
+    private func discardGeneratedResult() {
+        guard verifiedRender != nil else { return }
+        verifiedRender = nil
+        verification = nil
+        generatingPlan = nil
+        plan = nil
+    }
+
     var currentPalette: Palette {
         ExportVariant.Kind.brand.palette(brand: brandColour)
     }
 
     // MARK: - Generate
 
-    /// Runs the whole generate sequence: the slot opens, a blank card feeds out,
-    /// and the verify loop's passes play back as developments.
+    /// Renders, verifies, then prints the result onto the page.
     ///
-    /// The render starts before the machinery finishes opening, so the animation
-    /// is covering real work rather than padding a fixed delay. Passes are capped
-    /// at three on screen: a stubborn logo can take five rungs of the ladder, and
-    /// watching all of them would stop being a flourish.
+    /// The verify loop runs first and the slot holds a small working state while
+    /// it does, because the loop's duration depends on the artwork and a fixed
+    /// animation cannot cover a variable wait honestly. Once there is a verified
+    /// symbol, one continuous timeline prints it.
+    ///
+    /// Nothing navigates. The card lands in the frame this page already keeps for
+    /// it, and the page becomes the result.
     func generate() async {
         guard canContinueFromInput, generatePhase == .idle else { return }
 
@@ -227,59 +243,33 @@ final class AppModel {
         let config = config
         let palette = currentPalette
 
-        generatePhase = .opening
-        Haptics.impact(.rigid)
+        generatePhase = .working
+        Haptics.impact(.soft, intensity: 0.6)
 
-        let work = Task { () -> VerifiedRender? in
-            try? await self.pipeline.render(payload: payload, silhouette: silhouette,
-                                            config: config, palette: palette)
-        }
-
-        // A fast unverified plan gives the blank card its real paper geometry
-        // while the verified one is still being worked out.
-        generatingPlan = try? await pipeline.preview(payload: payload, silhouette: silhouette,
-                                                     config: config, palette: palette)
-
-        try? await Task.sleep(for: .milliseconds(380))
-        generatePhase = .feeding
-        Haptics.impact(.soft, intensity: 0.7)
-        try? await Task.sleep(for: .milliseconds(520))
-
-        guard let result = await work.value else {
+        let result = try? await pipeline.render(payload: payload, silhouette: silhouette,
+                                                config: config, palette: palette)
+        guard let result else {
             generatePhase = .idle
             renderError = RenderPipelineError.couldNotVerify.localizedDescription
             Haptics.warning()
             return
         }
 
-        for (index, attempt) in result.log.prefix(3).enumerated() {
-            generatingPlan = attempt.plan
-            generatePhase = .developing(pass: index)
-            Haptics.impact(.light, intensity: 0.5)
-            try? await Task.sleep(for: .milliseconds(index == 0 ? 980 : 580))
-            if !attempt.passed {
-                generatePhase = .reExposing(pass: index)
-                Haptics.warning()
-                try? await Task.sleep(for: .milliseconds(340))
-            }
-        }
-
-        generatingPlan = result.plan
         verifiedRender = result
         verification = result.report
-        plan = result.plan
         self.config = result.config
+        generatingPlan = result.plan
 
-        generatePhase = .verified
-        Haptics.success()
-        try? await Task.sleep(for: .milliseconds(620))
+        printStart = .now
+        generatePhase = .printing
+        Haptics.impact(.rigid, intensity: 0.85)
 
-        generatePhase = .handoff
-        try? await Task.sleep(for: .milliseconds(420))
+        try? await Task.sleep(for: .milliseconds(1_560))
 
-        stage = .tune
-        resolveToken = UUID()
+        // The page takes the card over at exactly the frame the overlay left it.
+        plan = result.plan
         generatePhase = .idle
+        Haptics.success()
     }
 
     // MARK: - Verify intents
@@ -383,7 +373,11 @@ final class AppModel {
         switch stage {
         case .input:
             stage = .tune
-            schedulePreview(debounce: .zero, animate: true)
+            if verifiedRender == nil {
+                schedulePreview(debounce: .zero, animate: true)
+            } else {
+                resolveToken = UUID()
+            }
         case .tune:
             stage = .verify
         case .verify:

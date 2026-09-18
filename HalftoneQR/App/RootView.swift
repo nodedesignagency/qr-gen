@@ -6,6 +6,8 @@ import SwiftUI
 /// middle, controls confined to the bottom bar. Content never sits on chrome.
 struct RootView: View {
     @State private var model = AppModel()
+    /// Where the printed card should land, published by the page that holds it.
+    @State private var cardSlot: CGRect = .zero
 
     var body: some View {
         ZStack {
@@ -23,11 +25,14 @@ struct RootView: View {
                 PrintSequenceOverlay(phase: model.generatePhase,
                                      plan: model.generatingPlan,
                                      choreography: model.choreography,
-                                     accent: model.accentColour)
+                                     accent: model.accentColour,
+                                     destination: cardSlot,
+                                     start: model.printStart)
                     .transition(.opacity)
                     .zIndex(10)
             }
         }
+        .onPreferenceChange(CardSlotKey.self) { cardSlot = $0 }
         .environment(\.signalAccent, model.accentColour)
         .preferredColorScheme(.dark)
         .tint(model.accentColour)
