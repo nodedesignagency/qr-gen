@@ -47,9 +47,24 @@ enum IslandMetrics {
 
     /// The drop's neck springs from a line this far *above* the lip. The system
     /// draws the island over app content, so the join is hidden behind the
-    /// island's own edge and any error in the derived lip cannot show as a gap
-    /// between the two.
-    static let tuck: CGFloat = 2
+    /// island's own edge and a few points of error in the derived lip cannot
+    /// show as a gap between the two.
+    static let tuck: CGFloat = 4
+
+    /// The top safe area inset, read from the window.
+    ///
+    /// Not from a `GeometryReader` inside the overlay: `ignoresSafeArea()` works
+    /// by clearing the safe area for the subtree it is applied to, so a reader
+    /// inside a full-screen overlay always sees an inset of zero. That is how
+    /// the stand-in pill ended up drawn over the top of a real island.
+    @MainActor
+    static var topSafeArea: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }?
+            .safeAreaInsets.top ?? 0
+    }
 }
 
 // MARK: - Easing
@@ -422,7 +437,9 @@ struct PrintSequenceOverlay: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let topInset = geometry.safeAreaInsets.top
+            // The reader's own inset is zero here (see `IslandMetrics.topSafeArea`);
+            // it is kept only as a floor in case the window is unavailable.
+            let topInset = max(geometry.safeAreaInsets.top, IslandMetrics.topSafeArea)
             TimelineView(.animation) { timeline in
                 content(now: timeline.date, size: geometry.size, topSafeArea: topInset)
             }
