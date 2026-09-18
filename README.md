@@ -155,6 +155,30 @@ bloom, wipe, spiral, develop and structure-first.
 
 ---
 
+## Adding the design assets
+
+Both drop straight into `HalftoneQR/Resources/` — no project or plist edits.
+
+**Background video** — name it `background.mp4` (`.mov` and `.m4v` also work).
+`VideoBackground` finds it by name, plays it muted and gapless through
+`AVPlayerLooper`, and fills the frame. With no file present it falls back to a
+still field in the same palette, so the layout is never broken by a missing
+asset. Keep it short and seamless; it ships inside the app.
+
+**SN Pro** — drop in `SNPro-Regular.otf`, `SNPro-Medium.otf`,
+`SNPro-Semibold.otf` and `SNPro-Bold.otf`. The project generates its Info.plist
+and so cannot express a `UIAppFonts` array; instead the app registers every font
+file it finds in its bundle at launch. Until the files exist, every call falls
+back to the system face at the same size, weight and tracking, so nothing
+reflows when they arrive.
+
+**Upload mark** — add the artwork to the asset catalogue as `upload-mark` and
+`UploadMark` prefers it over its drawn stand-in.
+
+> Resources are flattened into the bundle root, so two files anywhere under
+> `HalftoneQR/` that share a filename will fail the build with "Multiple
+> commands produce". Keep resource filenames unique.
+
 ## Building
 
 Open `HalftoneQR.xcodeproj` and run. Deployment target iOS 18; no dependencies,
