@@ -241,7 +241,7 @@ struct InputScreen: View {
 
     private var generateButton: some View {
         Button {
-            model.advance()
+            Task { await model.generate() }
         } label: {
             Text("Generate QR Code")
                 .snType(20, weight: .semibold)

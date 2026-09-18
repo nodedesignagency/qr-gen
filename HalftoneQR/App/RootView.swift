@@ -18,6 +18,15 @@ struct RootView: View {
                 Theme.background.ignoresSafeArea()
                 darkStage
             }
+
+            if model.generatePhase.isRunning {
+                PrintSequenceOverlay(phase: model.generatePhase,
+                                     plan: model.generatingPlan,
+                                     choreography: model.choreography,
+                                     accent: model.accentColour)
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
         .environment(\.signalAccent, model.accentColour)
         .preferredColorScheme(.dark)

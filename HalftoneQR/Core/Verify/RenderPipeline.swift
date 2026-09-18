@@ -6,9 +6,19 @@ struct VerifiedRender: Sendable {
     let config: RenderConfig
     let report: VerificationReport
     /// How many renders it took, including the first.
-    let attempts: Int
+    var attempts: Int { log.count }
     /// True when the verify loop had to pull back from what the user asked for.
     let wasReduced: Bool
+    /// Every pass the loop made, in order. The generate animation plays this
+    /// back, so what is on screen is the work that actually happened rather than
+    /// a timer pretending to be progress.
+    let log: [Attempt]
+
+    struct Attempt: Sendable {
+        let plan: RenderPlan
+        let config: RenderConfig
+        let passed: Bool
+    }
 }
 
 enum RenderPipelineError: Error, LocalizedError {
@@ -35,16 +45,16 @@ actor RenderPipeline {
                 config: RenderConfig,
                 palette: Palette) async throws -> VerifiedRender {
 
-        var attempts = 0
+        var log: [VerifiedRender.Attempt] = []
         for (index, candidate) in ([config] + RenderConfig.fallbackLadder(from: config)).enumerated() {
             try Task.checkCancellation()
-            attempts += 1
             let plan = try HalftonePlanner.makePlan(payload: payload, silhouette: silhouette,
                                                     config: candidate, palette: palette)
             let report = await verifier.verify(plan: plan, expecting: payload)
+            log.append(VerifiedRender.Attempt(plan: plan, config: candidate, passed: report.passed))
             if report.passed {
                 return VerifiedRender(plan: plan, config: candidate, report: report,
-                                      attempts: attempts, wasReduced: index > 0)
+                                      wasReduced: index > 0, log: log)
             }
         }
 
@@ -57,9 +67,10 @@ actor RenderPipeline {
         let plan = try HalftonePlanner.makePlan(payload: payload, silhouette: nil,
                                                 config: plain, palette: palette)
         let report = await verifier.verify(plan: plan, expecting: payload)
+        log.append(VerifiedRender.Attempt(plan: plan, config: plain, passed: report.passed))
         guard report.passed else { throw RenderPipelineError.couldNotVerify }
         return VerifiedRender(plan: plan, config: plain, report: report,
-                              attempts: attempts + 1, wasReduced: true)
+                              wasReduced: true, log: log)
     }
 
     /// A fast, unverified plan for the live preview while a slider is moving.

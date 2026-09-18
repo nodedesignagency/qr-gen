@@ -66,6 +66,13 @@ final class AppModel {
     /// driven by the display link instead of the main actor.
     private(set) var resolveToken = UUID()
 
+    // MARK: Generate animation
+
+    private(set) var generatePhase: GeneratePhase = .idle
+    /// The plan currently on the print. Swapped per pass so each develop shows
+    /// the render that pass actually produced.
+    private(set) var generatingPlan: RenderPlan?
+
     // MARK: Export
 
     private(set) var variants: [ExportVariant] = []
@@ -201,6 +208,78 @@ final class AppModel {
 
     var currentPalette: Palette {
         ExportVariant.Kind.brand.palette(brand: brandColour)
+    }
+
+    // MARK: - Generate
+
+    /// Runs the whole generate sequence: the slot opens, a blank card feeds out,
+    /// and the verify loop's passes play back as developments.
+    ///
+    /// The render starts before the machinery finishes opening, so the animation
+    /// is covering real work rather than padding a fixed delay. Passes are capped
+    /// at three on screen: a stubborn logo can take five rungs of the ladder, and
+    /// watching all of them would stop being a flourish.
+    func generate() async {
+        guard canContinueFromInput, generatePhase == .idle else { return }
+
+        let payload = payload
+        let silhouette = silhouette
+        let config = config
+        let palette = currentPalette
+
+        generatePhase = .opening
+        Haptics.impact(.rigid)
+
+        let work = Task { () -> VerifiedRender? in
+            try? await self.pipeline.render(payload: payload, silhouette: silhouette,
+                                            config: config, palette: palette)
+        }
+
+        // A fast unverified plan gives the blank card its real paper geometry
+        // while the verified one is still being worked out.
+        generatingPlan = try? await pipeline.preview(payload: payload, silhouette: silhouette,
+                                                     config: config, palette: palette)
+
+        try? await Task.sleep(for: .milliseconds(380))
+        generatePhase = .feeding
+        Haptics.impact(.soft, intensity: 0.7)
+        try? await Task.sleep(for: .milliseconds(520))
+
+        guard let result = await work.value else {
+            generatePhase = .idle
+            renderError = RenderPipelineError.couldNotVerify.localizedDescription
+            Haptics.warning()
+            return
+        }
+
+        for (index, attempt) in result.log.prefix(3).enumerated() {
+            generatingPlan = attempt.plan
+            generatePhase = .developing(pass: index)
+            Haptics.impact(.light, intensity: 0.5)
+            try? await Task.sleep(for: .milliseconds(index == 0 ? 980 : 580))
+            if !attempt.passed {
+                generatePhase = .reExposing(pass: index)
+                Haptics.warning()
+                try? await Task.sleep(for: .milliseconds(340))
+            }
+        }
+
+        generatingPlan = result.plan
+        verifiedRender = result
+        verification = result.report
+        plan = result.plan
+        self.config = result.config
+
+        generatePhase = .verified
+        Haptics.success()
+        try? await Task.sleep(for: .milliseconds(620))
+
+        generatePhase = .handoff
+        try? await Task.sleep(for: .milliseconds(420))
+
+        stage = .tune
+        resolveToken = UUID()
+        generatePhase = .idle
     }
 
     // MARK: - Verify intents

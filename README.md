@@ -53,6 +53,27 @@ likeness for nothing.
 
 ---
 
+## The generate animation
+
+Tapping Generate opens a slot at the top of the screen, feeds a blank card out
+of it, and develops the symbol onto the card.
+
+What develops is the verify loop's own attempt log. One clean print means the
+first render decoded; each visible re-exposure is a pass that failed and made
+the loop step the logo back. The card is the real plan, so what is watched
+printing is byte-identical to the PNG that comes out of the exporter, and the
+development is the same module choreography the app uses everywhere else.
+
+The slot is not the real Dynamic Island. An app cannot animate that — it belongs
+to the system, and ActivityKit only ever hands it content, never frame-by-frame
+control. This draws its own black pill in the same place, sized off the top safe
+area. The real island is opaque black, so a black shape growing out from behind
+it reads as one object; on a device without an island it is simply a floating
+pill, which still reads as a slot.
+
+Passes are capped at three on screen. A stubborn logo can take five rungs of the
+fallback ladder, and watching all of them would stop being a flourish.
+
 ## Verification
 
 **No render reaches the user without decoding first.**
