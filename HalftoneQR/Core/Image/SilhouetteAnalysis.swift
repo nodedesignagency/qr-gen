@@ -53,6 +53,18 @@ struct SilhouetteAnalysis: Sendable {
         }
     }
 
+    /// Two or three words, for the status chip on the file row.
+    var shortStatus: String {
+        switch verdict {
+        case .good: return "Reads cleanly"
+        case .thinStrokes: return "Strokes too thin"
+        case .tooDetailed: return "Too detailed"
+        case .lowContrast: return "Low contrast"
+        case .tooSparse: return "Too little ink"
+        case .tooDense: return "Too solid"
+        }
+    }
+
     /// What the user can actually do about it.
     var advice: String {
         switch verdict {
