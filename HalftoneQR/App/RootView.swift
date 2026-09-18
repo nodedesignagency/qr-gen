@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// The whole app: a rail at the top, the hero in the middle, chrome at the
-/// bottom, and nothing else competing for attention.
+/// The whole app: a quiet title, the card, and one action.
+///
+/// Every screen has the same shape — name at the top, the symbol occupying the
+/// middle, controls confined to the bottom bar. Content never sits on chrome.
 struct RootView: View {
     @State private var model = AppModel()
 
@@ -10,42 +12,39 @@ struct RootView: View {
             Theme.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                header
+                StageHeader(title: title,
+                            step: model.stage.rawValue,
+                            stepCount: Stage.allCases.count,
+                            trailingLabel: "Reset",
+                            showsTrailing: model.stage != .input,
+                            onTrailing: { model.startOver() })
                     .padding(.horizontal, Theme.gutter)
-                    .padding(.top, 6)
-                    .padding(.bottom, 18)
+                    .padding(.top, 4)
+                    .padding(.bottom, 20)
 
                 stageContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 BottomBar {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 20) {
                         controls
                         primaryAction
                     }
                 }
-                .glassGroup()
             }
         }
         .environment(\.signalAccent, model.accentColour)
         .preferredColorScheme(.dark)
         .tint(model.accentColour)
-        .animation(.easeOut(duration: 0.22), value: model.stage)
+        .animation(.easeOut(duration: 0.24), value: model.stage)
     }
 
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(alignment: .center) {
-            StageRail(stages: Stage.allCases.map(\.title), current: model.stage.rawValue)
-            if model.stage != .input {
-                Button {
-                    model.startOver()
-                } label: {
-                    Text("Reset").railLabelStyle(Theme.tertiary)
-                }
-                .buttonStyle(.plain)
-            }
+    private var title: String {
+        switch model.stage {
+        case .input: return "New code"
+        case .tune: return "Customise"
+        case .verify: return "Verify"
+        case .export: return "Export"
         }
     }
 
@@ -82,26 +81,26 @@ struct RootView: View {
     }
 
     private var primaryAction: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             if model.stage != .input {
                 Button {
                     model.back()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.secondary)
                         .frame(width: Theme.controlHeight, height: Theme.controlHeight)
+                        .background(Circle().fill(Color.white.opacity(0.06)))
+                        .hairlineBorder(Circle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Theme.secondary)
-                .background(Circle().fill(.clear).liquidGlass(Circle()))
             }
 
             Button(action: primaryActionTapped) {
                 Text(primaryTitle)
             }
-            .buttonStyle(GlassButtonStyle(prominent: true, tint: model.accentColour))
+            .buttonStyle(PrimaryButtonStyle(tint: model.accentColour))
             .disabled(!primaryEnabled)
-            .opacity(primaryEnabled ? 1 : 0.4)
         }
     }
 

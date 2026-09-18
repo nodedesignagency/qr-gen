@@ -67,27 +67,46 @@ extension View {
     }
 }
 
-/// A capsule button that takes the system's glass treatment when available.
-struct GlassButtonStyle: ButtonStyle {
-    var prominent: Bool = false
-    var tint: Color?
+/// The one action button per screen. Full width, capsule, unmistakable.
+///
+/// Disabled state is an explicit muted fill rather than a faded accent — a
+/// translucent accent over a dark bar reads as a muddy smear, which is exactly
+/// what it did before.
+struct PrimaryButtonStyle: ButtonStyle {
+    var tint: Color
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(prominent ? Theme.background : Theme.primary)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(isEnabled ? Theme.background : Theme.tertiary)
             .frame(maxWidth: .infinity)
             .frame(height: Theme.controlHeight)
             .background {
-                if prominent {
-                    Capsule().fill(tint ?? Theme.primary)
-                } else {
-                    Capsule().fill(.clear).liquidGlass(Capsule(), tint: tint, interactive: true)
-                }
+                Capsule().fill(isEnabled ? tint : Color.white.opacity(0.07))
+            }
+            .overlay {
+                if !isEnabled { Capsule().strokeBorder(Theme.hairline, lineWidth: 0.5) }
             }
             .contentShape(Capsule())
-            .scaleEffect(configuration.isPressed ? 0.975 : 1)
+            .scaleEffect(configuration.isPressed && isEnabled ? 0.975 : 1)
             // Mechanical, not springy: a short linear settle.
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// The quiet secondary button used throughout.
+struct SmallButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(isEnabled ? Theme.primary : Theme.tertiary)
+            .padding(.horizontal, 16)
+            .frame(height: 38)
+            .background(Capsule().fill(Color.white.opacity(configuration.isPressed ? 0.12 : 0.06)))
+            .hairlineBorder(Capsule())
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
     }
 }

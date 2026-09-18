@@ -5,22 +5,22 @@ struct ExportScreen: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            QRPreview(plan: model.selected?.plan ?? model.plan,
-                      choreography: model.choreography)
-                .padding(.horizontal, 44)
+        VStack(spacing: 18) {
+            QRCard(plan: model.selected?.plan ?? model.plan,
+                   animationKey: model.resolveToken,
+                   choreography: model.choreography)
+                .padding(.horizontal, Theme.gutter)
                 .frame(maxHeight: .infinity)
 
             VStack(spacing: 14) {
-                if model.isBuildingVariants {
-                    HStack {
+                HStack {
+                    if model.isBuildingVariants {
                         StatusPill(text: "Verifying four finishes", tone: .working)
-                        Spacer()
-                    }
-                } else if let variant = model.selected {
-                    HStack {
+                    } else if let variant = model.selected {
                         StatusPill(text: "Verified · \(variant.report.summary)", tone: .good)
-                        Spacer()
+                    }
+                    Spacer()
+                    if let variant = model.selected {
                         Text(variant.kind.subtitle)
                             .font(.railLabel)
                             .foregroundStyle(Theme.tertiary)
@@ -29,18 +29,23 @@ struct ExportScreen: View {
 
                 if let bundle = model.exportBundle {
                     ShareLink(items: bundle.allURLs) {
-                        HStack(spacing: 8) {
-                            Text("Share \(bundle.allURLs.count) files")
-                            Text(bundle.animationURL != nil ? "PNG · SVG · PDF · GIF" : "PNG · SVG · PDF")
-                                .railLabelStyle(Theme.tertiary)
+                        HStack(spacing: 9) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text(bundle.animationURL != nil
+                                 ? "Share · PNG SVG PDF GIF" : "Share · PNG SVG PDF")
+                                .font(.system(size: 14, weight: .medium))
                         }
+                        .foregroundStyle(Theme.primary)
+                        .padding(.horizontal, 16)
+                        .frame(height: 38)
+                        .background(Capsule().fill(Color.white.opacity(0.06)))
+                        .hairlineBorder(Capsule())
                     }
-                    .buttonStyle(SmallButtonStyle())
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(.horizontal, Theme.gutter)
-            .padding(.bottom, 10)
         }
         .task {
             if model.variants.isEmpty {
@@ -50,43 +55,32 @@ struct ExportScreen: View {
     }
 }
 
-/// Variant chooser and the export trigger, in the bottom bar.
+/// Variant chooser and the animation toggle, in the bottom bar.
 struct ExportControls: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 8) {
-                ForEach(model.variants) { variant in
-                    Button {
-                        model.selectedVariant = variant.kind
-                        model.clearExport()
-                    } label: {
-                        VStack(spacing: 8) {
-                            VariantSwatch(palette: variant.plan.palette)
-                                .frame(height: 30)
-                            Text(variant.kind.title)
-                                .railLabelStyle(model.selectedVariant == variant.kind
-                                                ? Theme.primary : Theme.tertiary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(model.selectedVariant == variant.kind
-                                      ? Color.white.opacity(0.05) : .clear))
-                        .hairlineBorder(RoundedRectangle(cornerRadius: 12, style: .continuous),
-                                        colour: model.selectedVariant == variant.kind
-                                        ? Theme.hairlineStrong : Theme.hairline)
-                    }
-                    .buttonStyle(.plain)
-                }
+        VStack(spacing: 18) {
+            HStack(spacing: 10) {
                 if model.variants.isEmpty {
                     ForEach(0..<4, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Theme.sunken)
-                            .frame(height: 74)
-                            .frame(maxWidth: .infinity)
+                        VStack(spacing: 9) {
+                            Circle().fill(Color.white.opacity(0.035))
+                                .frame(width: Theme.circleControl, height: Theme.circleControl)
+                            Text(" ").font(.controlLabel)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    ForEach(model.variants) { variant in
+                        CircleControl(label: variant.kind.title,
+                                      isSelected: model.selectedVariant == variant.kind) {
+                            model.selectedVariant = variant.kind
+                            model.clearExport()
+                        } glyph: {
+                            VariantSwatch(palette: variant.plan.palette)
+                                .frame(width: 26, height: 26)
+                        }
                     }
                 }
             }
@@ -94,7 +88,9 @@ struct ExportControls: View {
             .animation(.easeOut(duration: 0.16), value: model.variants.count)
 
             Toggle(isOn: $model.includeAnimation) {
-                Text("Include resolve animation").railLabelStyle(Theme.secondary)
+                Text("Include resolve animation")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.secondary)
             }
             .toggleStyle(HairlineToggleStyle())
         }
@@ -109,16 +105,23 @@ struct VariantSwatch: View {
         ZStack {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(palette.paper.swiftUIColor)
-            HStack(spacing: 3) {
-                RoundedRectangle(cornerRadius: 1.5).fill(palette.structure.swiftUIColor)
-                    .frame(width: 8, height: 8)
-                RoundedRectangle(cornerRadius: 1.5).fill(palette.art.swiftUIColor)
-                    .frame(width: 5, height: 5)
-                RoundedRectangle(cornerRadius: 1.5).fill(palette.ink.swiftUIColor)
-                    .frame(width: 5, height: 5)
+            VStack(spacing: 2.5) {
+                HStack(spacing: 2.5) {
+                    RoundedRectangle(cornerRadius: 1.5).fill(palette.structure.swiftUIColor)
+                        .frame(width: 7, height: 7)
+                    RoundedRectangle(cornerRadius: 1).fill(palette.art.swiftUIColor)
+                        .frame(width: 4, height: 4)
+                }
+                HStack(spacing: 2.5) {
+                    RoundedRectangle(cornerRadius: 1).fill(palette.art.swiftUIColor)
+                        .frame(width: 4, height: 4)
+                    RoundedRectangle(cornerRadius: 1).fill(palette.ink.swiftUIColor)
+                        .frame(width: 5, height: 5)
+                }
             }
         }
-        .hairlineBorder(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .hairlineBorder(RoundedRectangle(cornerRadius: 7, style: .continuous),
+                        colour: .black.opacity(0.12))
     }
 }
 
@@ -136,11 +139,11 @@ struct HairlineToggleStyle: ToggleStyle {
                 Spacer()
                 Capsule()
                     .fill(configuration.isOn ? accent : Color.white.opacity(0.10))
-                    .frame(width: 38, height: 22)
+                    .frame(width: 42, height: 25)
                     .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                         Circle()
                             .fill(Theme.primary)
-                            .frame(width: 16, height: 16)
+                            .frame(width: 19, height: 19)
                             .padding(3)
                     }
             }

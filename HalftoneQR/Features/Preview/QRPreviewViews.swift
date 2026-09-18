@@ -1,32 +1,52 @@
 import SwiftUI
 
-/// The hero. A rendered symbol on its paper field, centred with room around it.
+/// The hero: the symbol on its paper card, big and centred with room around it.
 ///
-/// While a plan is animating it is drawn live at module resolution, which is
-/// cheap enough to hold a steady frame rate on the densest symbol the app can
-/// produce. Once it settles, the full-resolution halftone bitmap takes over and
-/// the detail sharpens in rather than fading.
-struct QRPreview: View {
+/// While the resolve animation runs, the symbol is drawn live at module
+/// resolution, which is cheap enough to hold a steady frame rate on the densest
+/// symbol the app can make. When it finishes, the full-resolution halftone
+/// bitmap takes over and the detail sharpens in rather than fading.
+///
+/// The animation is driven by `TimelineView` off a start date, not by stepping a
+/// published value on the main actor — that stutters and drifts.
+struct QRCard: View {
     let plan: RenderPlan?
-    var resolveProgress: Double = 1
+    /// Changing this restarts the resolve animation.
+    var animationKey: UUID?
     var choreography: Choreography = .structureFirst
     var isScanning: Bool = false
+    var duration: Double = 1.15
 
+    @State private var startedAt: Date?
+    @State private var playedKey: UUID?
     @State private var rendered: CGImage?
     @State private var renderedPlanID: UUID?
 
     var body: some View {
         GeometryReader { geometry in
             let side = min(geometry.size.width, geometry.size.height)
-            symbol(side: side)
+            card(side: side)
                 .frame(width: side, height: side)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .aspectRatio(1, contentMode: .fit)
+        .onChange(of: animationKey) { _, key in
+            guard let key, key != playedKey else { return }
+            playedKey = key
+            startedAt = .now
+        }
+        .task(id: playedKey) {
+            // TimelineView(.animation) drives at the display refresh rate for as
+            // long as it is on screen, so it is torn down once the run is over.
+            guard playedKey != nil else { return }
+            try? await Task.sleep(for: .seconds(duration + 0.1))
+            guard !Task.isCancelled else { return }
+            startedAt = nil
+        }
         .task(id: plan?.id) {
             guard let plan else { return }
             let image = await Task.detached(priority: .userInitiated) {
-                RasterRenderer.image(for: plan, pixelSize: 1100).map(SendableImage.init)
+                RasterRenderer.image(for: plan, pixelSize: 1200).map(SendableImage.init)
             }.value
             guard !Task.isCancelled else { return }
             rendered = image?.image
@@ -35,31 +55,46 @@ struct QRPreview: View {
     }
 
     @ViewBuilder
-    private func symbol(side: CGFloat) -> some View {
+    private func card(side: CGFloat) -> some View {
         ZStack {
             if let plan {
-                if resolveProgress < 1 {
-                    ModuleResolveCanvas(plan: plan, progress: resolveProgress,
-                                        choreography: choreography)
-                } else if let rendered, renderedPlanID == plan.id {
-                    Image(decorative: rendered, scale: 1, orientation: .up)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
+                if let startedAt {
+                    // Live module-resolution drawing until the sequence completes,
+                    // then the bitmap takes over in the same frame position.
+                    TimelineView(.animation) { timeline in
+                        let elapsed = timeline.date.timeIntervalSince(startedAt)
+                        let progress = min(max(elapsed / duration, 0), 1)
+                        if progress < 1 {
+                            ModuleResolveCanvas(plan: plan, progress: progress,
+                                                choreography: choreography)
+                        } else {
+                            settled(plan: plan)
+                        }
+                    }
                 } else {
-                    // The bitmap is still rendering; the live canvas stands in so
-                    // there is never an empty frame.
-                    ModuleResolveCanvas(plan: plan, progress: 1, choreography: choreography)
+                    settled(plan: plan)
                 }
             } else {
-                EmptyPreviewPlaceholder()
+                EmptyCardPlaceholder()
             }
 
-            if isScanning {
-                ScanSweep()
-            }
+            if isScanning { ScanSweep() }
         }
-        .clipShape(RoundedRectangle(cornerRadius: side * 0.055, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: side * 0.085, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func settled(plan: RenderPlan) -> some View {
+        if let rendered, renderedPlanID == plan.id {
+            Image(decorative: rendered, scale: 1, orientation: .up)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+        } else {
+            // The bitmap is still rendering; the live canvas stands in so there
+            // is never an empty frame.
+            ModuleResolveCanvas(plan: plan, progress: 1, choreography: choreography)
+        }
     }
 }
 
@@ -116,7 +151,7 @@ struct ModuleResolveCanvas: View {
     }
 }
 
-/// A single hairline sweeping the symbol while verification runs. Mechanical:
+/// A single hairline sweeping the card while verification runs. Mechanical:
 /// constant speed, hard edges, no glow.
 struct ScanSweep: View {
     @Environment(\.signalAccent) private var accent
@@ -126,12 +161,12 @@ struct ScanSweep: View {
         GeometryReader { geometry in
             Rectangle()
                 .fill(accent)
-                .frame(height: 1)
+                .frame(height: 1.5)
                 .offset(y: geometry.size.height * phase)
         }
         .allowsHitTesting(false)
         .onAppear {
-            withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
+            withAnimation(.linear(duration: 0.85).repeatForever(autoreverses: false)) {
                 phase = 1
             }
         }
@@ -139,21 +174,23 @@ struct ScanSweep: View {
 }
 
 /// What sits in the hero slot before anything has been generated: the grid the
-/// symbol will occupy, drawn as a faint lattice.
-struct EmptyPreviewPlaceholder: View {
+/// symbol will occupy, drawn as a faint lattice on the paper card.
+struct EmptyCardPlaceholder: View {
     var body: some View {
-        Canvas { context, size in
-            let step = size.width / 21
-            var path = Path()
-            for index in 0...21 {
-                let position = CGFloat(index) * step
-                path.move(to: CGPoint(x: position, y: 0))
-                path.addLine(to: CGPoint(x: position, y: size.height))
-                path.move(to: CGPoint(x: 0, y: position))
-                path.addLine(to: CGPoint(x: size.width, y: position))
+        ZStack {
+            Theme.elevated
+            Canvas { context, size in
+                let step = size.width / 21
+                var path = Path()
+                for index in 0...21 {
+                    let position = CGFloat(index) * step
+                    path.move(to: CGPoint(x: position, y: 0))
+                    path.addLine(to: CGPoint(x: position, y: size.height))
+                    path.move(to: CGPoint(x: 0, y: position))
+                    path.addLine(to: CGPoint(x: size.width, y: position))
+                }
+                context.stroke(path, with: .color(.white.opacity(0.05)), lineWidth: 0.5)
             }
-            context.stroke(path, with: .color(.white.opacity(0.045)), lineWidth: 0.5)
         }
-        .background(Theme.sunken)
     }
 }

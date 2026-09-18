@@ -8,22 +8,16 @@ struct VerifyScreen: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            QRPreview(plan: model.plan,
-                      resolveProgress: model.resolveProgress,
-                      choreography: model.choreography,
-                      isScanning: model.isVerifying)
-                .padding(.horizontal, 32)
+        VStack(spacing: 18) {
+            QRCard(plan: model.plan,
+                   animationKey: model.resolveToken,
+                   choreography: model.choreography,
+                   isScanning: model.isVerifying)
+                .padding(.horizontal, Theme.gutter)
                 .frame(maxHeight: .infinity)
 
             report
                 .padding(.horizontal, Theme.gutter)
-                .padding(.bottom, 10)
-        }
-        .task {
-            if model.verification == nil {
-                await model.runVerification()
-            }
         }
     }
 
@@ -47,7 +41,7 @@ struct VerifyScreen: View {
             }
 
             if let report = model.verification, let decoded = report.decoded {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 7) {
                     Text("Decoded").railLabelStyle()
                     Text(decoded)
                         .font(.mono(13))
@@ -56,61 +50,61 @@ struct VerifyScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(14)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.sunken))
-                .hairlineBorder(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(15)
+                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.elevated))
+                .hairlineBorder(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
 
             if let render = model.verifiedRender, render.wasReduced {
                 HStack(alignment: .top, spacing: 10) {
-                    Rectangle().fill(Theme.caution).frame(width: 2)
+                    Capsule().fill(Theme.caution).frame(width: 2.5)
                     Text("The logo was eased back to get a clean decode. Strength is now "
                          + String(format: "%.2f", render.config.logoStrength) + ".")
-                        .font(.system(size: 12))
+                        .font(.system(size: 13))
                         .foregroundStyle(Theme.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
+        .task {
+            if model.verification == nil {
+                await model.runVerification()
+            }
+        }
     }
 }
 
-/// Choreography picker, shown in the bottom bar on the verify step.
+/// Choreography picker for the verify step: the same round control, plus a
+/// replay so the sequence can be watched again.
 struct VerifyControls: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
+        HStack(spacing: 10) {
+            CircleControl(label: model.choreography.title, isSelected: true) {
+                model.choreography = model.choreography.next
+                model.replayResolve()
+            } glyph: {
+                MotionGlyph(choreography: model.choreography)
+            }
+
+            CircleControl(label: "Replay", isSelected: false) {
+                model.replayResolve()
+            } glyph: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Theme.primary)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text("Resolve").railLabelStyle()
-                Spacer()
                 Text(model.choreography.detail)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.tertiary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(Choreography.allCases) { option in
-                        Button {
-                            model.choreography = option
-                            Task { await model.replayResolve() }
-                        } label: {
-                            Text(option.title)
-                                .railLabelStyle(model.choreography == option
-                                                ? Theme.primary : Theme.tertiary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 9)
-                                .background(
-                                    Capsule().fill(model.choreography == option
-                                                   ? Color.white.opacity(0.06) : .clear))
-                                .hairlineBorder(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 1)
-            }
-            .animation(.easeOut(duration: 0.14), value: model.choreography)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 6)
         }
     }
 }

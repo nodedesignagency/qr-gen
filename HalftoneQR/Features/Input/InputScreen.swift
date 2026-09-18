@@ -2,7 +2,7 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Step one: the artwork and the address.
+/// Step one: the artwork and the address. Two decisions, nothing else.
 struct InputScreen: View {
     @Bindable var model: AppModel
 
@@ -13,20 +13,14 @@ struct InputScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 26) {
                 dropZone
                 urlField
-                if let analysis = model.analysis, !analysis.isUsable {
-                    warning(analysis)
-                }
-                if let notice = model.lengthNotice {
-                    lengthNotice(notice)
-                }
-                sourceHint
+                advisories
             }
             .padding(.horizontal, Theme.gutter)
-            .padding(.top, 8)
-            .padding(.bottom, 40)
+            .padding(.top, 4)
+            .padding(.bottom, 32)
         }
         .scrollDismissesKeyboard(.interactively)
         .fileImporter(isPresented: $isImporting,
@@ -49,39 +43,39 @@ struct InputScreen: View {
         }
     }
 
-    // MARK: - Drop zone
+    // MARK: - Mark
 
     private var dropZone: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Mark").railLabelStyle()
-
             ZStack {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Theme.sunken)
+                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                    .fill(Theme.elevated)
 
                 if let logo = model.logo {
                     Image(decorative: logo.image, scale: 1, orientation: .up)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .padding(26)
+                        .padding(34)
                 } else {
-                    VStack(spacing: 10) {
-                        ShapeGlyph(shape: .square)
-                            .stroke(Theme.tertiary, lineWidth: 1)
-                            .frame(width: 22, height: 22)
-                        Text("Drop a logo")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(Theme.secondary)
-                        Text("PNG · SVG · PDF · JPEG")
-                            .railLabelStyle()
+                    VStack(spacing: 14) {
+                        LatticeGlyph(shape: .square, colour: Theme.tertiary)
+                            .scaleEffect(1.7)
+                            .frame(height: 34)
+                        VStack(spacing: 5) {
+                            Text("Drop your logo")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundStyle(Theme.secondary)
+                            Text("PNG · SVG · PDF · JPEG")
+                                .railLabelStyle()
+                        }
                     }
                 }
             }
-            .frame(height: 190)
+            .frame(height: 260)
             .frame(maxWidth: .infinity)
-            .hairlineBorder(RoundedRectangle(cornerRadius: 18, style: .continuous),
+            .hairlineBorder(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous),
                             colour: isTargeted ? model.accentColour : Theme.hairline)
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .onTapGesture { isImporting = true }
             .dropDestination(for: Data.self) { items, _ in
                 guard let data = items.first, let image = ImageDecoder.decode(data) else { return false }
@@ -95,28 +89,26 @@ struct InputScreen: View {
                     .buttonStyle(SmallButtonStyle())
                 PhotosPicker(selection: $photoItem, matching: .images) {
                     Text("Photos")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Theme.primary)
+                        .padding(.horizontal, 16)
+                        .frame(height: 38)
+                        .background(Capsule().fill(Color.white.opacity(0.06)))
+                        .hairlineBorder(Capsule())
                 }
-                .buttonStyle(SmallButtonStyle())
                 if model.logo != nil {
                     Button("Clear") { model.clearLogo() }
                         .buttonStyle(SmallButtonStyle())
                 }
-                Spacer()
-                if let name = model.logoName {
-                    Text(name)
-                        .font(.railLabel)
-                        .foregroundStyle(Theme.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                Spacer(minLength: 0)
             }
         }
     }
 
-    // MARK: - URL
+    // MARK: - Destination
 
     private var urlField: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Destination").railLabelStyle()
             HStack(spacing: 10) {
                 TextField("nodedesignagency.com", text: $model.urlText)
@@ -132,15 +124,16 @@ struct InputScreen: View {
                     Circle().fill(Theme.positive).frame(width: 6, height: 6)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 18)
             .frame(height: Theme.controlHeight)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.sunken))
-            .hairlineBorder(RoundedRectangle(cornerRadius: 14, style: .continuous),
-                            colour: urlFocused ? model.accentColour.opacity(0.55) : Theme.hairline)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.elevated))
+            .hairlineBorder(RoundedRectangle(cornerRadius: 18, style: .continuous),
+                            colour: urlFocused ? model.accentColour.opacity(0.6) : Theme.hairline)
             .animation(.easeOut(duration: 0.14), value: urlFocused)
 
             if let version = model.symbolVersion {
-                ValueRow(key: "Symbol", value: "v\(version) · \(QRVersion.size(of: version)) modules",
+                ValueRow(key: "Symbol",
+                         value: "v\(version) · \(QRVersion.size(of: version)) modules",
                          tint: Theme.secondary)
             }
         }
@@ -148,93 +141,68 @@ struct InputScreen: View {
 
     // MARK: - Advisories
 
-    private func lengthNotice(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Rectangle().fill(Theme.caution).frame(width: 2)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Long destination").railLabelStyle(Theme.caution)
-                Text(text)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+    @ViewBuilder
+    private var advisories: some View {
+        if let analysis = model.analysis, !analysis.isUsable {
+            note(title: analysis.headline, body: analysis.advice, tone: Theme.caution) {
+                VStack(spacing: 9) {
+                    ValueRow(key: "Ink coverage", value: percent(analysis.inkCoverage))
+                    ValueRow(key: "Stroke survival", value: percent(analysis.strokeSurvival))
+                    ValueRow(key: "Edge density", value: percent(analysis.edgeDensity))
+                }
+                .padding(15)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.elevated))
+                .hairlineBorder(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
         }
-        .padding(.vertical, 2)
+
+        if let notice = model.lengthNotice {
+            note(title: "Long destination", body: notice, tone: Theme.caution) { EmptyView() }
+        }
+
+        if model.logo == nil, model.resolvedURL != nil {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("No mark yet").railLabelStyle()
+                    Text("Pull the icon and colour from the site")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.secondary)
+                }
+                Spacer(minLength: 8)
+                Button(model.isFetchingSite ? "Fetching" : "Fetch") {
+                    model.fetchSiteArtwork()
+                }
+                .buttonStyle(SmallButtonStyle())
+                .disabled(model.isFetchingSite)
+            }
+            if model.siteFetchFailed {
+                Text("Nothing usable on that page. Upload a mark instead.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.tertiary)
+            }
+        } else if model.logoCameFromSite {
+            Text("Mark taken from the site").railLabelStyle()
+        }
     }
 
-    private func warning(_ analysis: SilhouetteAnalysis) -> some View {
+    private func note<Extra: View>(title: String, body text: String, tone: Color,
+                                   @ViewBuilder extra: () -> Extra) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                Rectangle().fill(Theme.caution).frame(width: 2)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(analysis.headline).railLabelStyle(Theme.caution)
-                    Text(analysis.advice)
-                        .font(.system(size: 13))
+            HStack(alignment: .top, spacing: 12) {
+                Capsule().fill(tone).frame(width: 2.5)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title).railLabelStyle(tone)
+                    Text(text)
+                        .font(.system(size: 14))
                         .foregroundStyle(Theme.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            VStack(spacing: 8) {
-                ValueRow(key: "Ink coverage", value: percent(analysis.inkCoverage))
-                ValueRow(key: "Stroke survival", value: percent(analysis.strokeSurvival))
-                ValueRow(key: "Edge density", value: percent(analysis.edgeDensity))
-            }
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.sunken))
-            .hairlineBorder(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            extra()
         }
     }
 
     private func percent(_ value: Double) -> String {
         String(format: "%.1f%%", value * 100)
-    }
-
-    // MARK: - Site fallback
-
-    @ViewBuilder
-    private var sourceHint: some View {
-        if model.logo == nil, model.resolvedURL != nil {
-            VStack(alignment: .leading, spacing: 10) {
-                Hairline()
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("No mark yet").railLabelStyle()
-                        Text("Pull the icon and theme colour from the site")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Theme.secondary)
-                    }
-                    Spacer()
-                    Button(model.isFetchingSite ? "Fetching" : "Fetch") {
-                        model.fetchSiteArtwork()
-                    }
-                    .buttonStyle(SmallButtonStyle())
-                    .disabled(model.isFetchingSite)
-                }
-                if model.siteFetchFailed {
-                    Text("Nothing usable found on that page. Upload a mark instead.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.tertiary)
-                }
-            }
-        } else if model.logoCameFromSite {
-            Text("Mark taken from the site")
-                .railLabelStyle()
-        }
-    }
-}
-
-/// The quiet secondary button used throughout.
-struct SmallButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(isEnabled ? Theme.primary : Theme.tertiary)
-            .padding(.horizontal, 14)
-            .frame(height: 34)
-            .background(Capsule().fill(Color.white.opacity(configuration.isPressed ? 0.10 : 0.05)))
-            .hairlineBorder(Capsule())
-            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
     }
 }

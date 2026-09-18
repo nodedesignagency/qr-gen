@@ -1,26 +1,53 @@
 import SwiftUI
 
-/// The step indicator that runs along the top of every screen.
-struct StageRail: View {
-    let stages: [String]
-    let current: Int
+/// The screen title and the step dots. Deliberately quiet: a name, a position,
+/// and a way out. Nothing competes with the card.
+struct StageHeader: View {
+    let title: String
+    let step: Int
+    let stepCount: Int
+    var trailingLabel: String?
+    var showsTrailing: Bool = false
+    var onTrailing: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(stages.enumerated()), id: \.offset) { index, title in
-                HStack(spacing: 6) {
-                    Text(String(format: "%02d", index + 1))
-                        .font(.railLabel)
-                        .foregroundStyle(index == current ? Theme.primary : Theme.tertiary)
-                    Text(title)
-                        .railLabelStyle(index == current ? Theme.secondary : Theme.tertiary)
-                }
-                .padding(.trailing, 14)
-                .opacity(index <= current ? 1 : 0.45)
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(title)
+                    .font(.screenTitle)
+                    .foregroundStyle(Theme.primary)
+                StepDots(step: step, count: stepCount)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 12)
+            if showsTrailing, let trailingLabel {
+                Button(action: onTrailing) {
+                    Text(trailingLabel).railLabelStyle(Theme.secondary)
+                        .padding(.horizontal, 13)
+                        .frame(height: 32)
+                        .background(Capsule().fill(Color.white.opacity(0.06)))
+                        .hairlineBorder(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .animation(.easeOut(duration: 0.18), value: current)
+    }
+}
+
+/// Progress as four short bars rather than a row of cramped labels.
+struct StepDots: View {
+    let step: Int
+    let count: Int
+    @Environment(\.signalAccent) private var accent
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<count, id: \.self) { index in
+                Capsule()
+                    .fill(index == step ? accent : (index < step ? Theme.secondary : Theme.hairlineStrong))
+                    .frame(width: index == step ? 20 : 10, height: 3)
+            }
+        }
+        .animation(.easeOut(duration: 0.22), value: step)
     }
 }
 
@@ -32,7 +59,7 @@ struct Hairline: View {
     }
 }
 
-/// Small monospaced key/value row, used for every readout in the app.
+/// Small monospaced key/value row.
 struct ValueRow: View {
     let key: String
     let value: String
@@ -78,15 +105,53 @@ struct StatusPill: View {
                 .textCase(.uppercase)
                 .foregroundStyle(colour)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
         .background(Capsule().fill(colour.opacity(0.10)))
-        .hairlineBorder(Capsule(), colour: colour.opacity(0.25))
+        .hairlineBorder(Capsule(), colour: colour.opacity(0.22))
     }
 }
 
-/// The single slider in the app. Hairline track, monospaced readout, no thumb
-/// shadow, and a detent at each tenth so it feels notched rather than loose.
+/// One of the circular controls that sit above the action button.
+///
+/// The glyph carries the meaning and the label underneath names it, which is the
+/// pattern the references use — a row of round controls, not a segmented bar.
+struct CircleControl<Glyph: View>: View {
+    let label: String
+    var isSelected: Bool = false
+    var isEnabled: Bool = true
+    let action: () -> Void
+    @ViewBuilder var glyph: Glyph
+
+    @Environment(\.signalAccent) private var accent
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 9) {
+                ZStack {
+                    Circle()
+                        .fill(isSelected ? Color.white.opacity(0.10) : Color.white.opacity(0.035))
+                    Circle()
+                        .strokeBorder(isSelected ? accent : Theme.hairlineStrong,
+                                      lineWidth: isSelected ? 1.4 : 0.5)
+                    glyph
+                }
+                .frame(width: Theme.circleControl, height: Theme.circleControl)
+                Text(label)
+                    .font(.controlLabel)
+                    .foregroundStyle(isSelected ? Theme.primary : Theme.tertiary)
+            }
+            .frame(maxWidth: .infinity)
+            .opacity(isEnabled ? 1 : 0.35)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .animation(.easeOut(duration: 0.15), value: isSelected)
+    }
+}
+
+/// The single slider in the app. Hairline track, monospaced readout, and a
+/// detent at each hundredth so it feels notched rather than loose.
 struct TechSlider: View {
     let title: String
     @Binding var value: Double
@@ -101,7 +166,7 @@ struct TechSlider: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Text(title).railLabelStyle()
                 Spacer()
@@ -113,16 +178,16 @@ struct TechSlider: View {
             GeometryReader { geometry in
                 let width = geometry.size.width
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.hairline).frame(height: 2)
+                    Capsule().fill(Theme.hairlineStrong).frame(height: 2)
                     Capsule().fill(accent)
                         .frame(width: max(0, width * fraction), height: 2)
                     Circle()
                         .fill(Theme.primary)
-                        .frame(width: isDragging ? 18 : 14, height: isDragging ? 18 : 14)
+                        .frame(width: isDragging ? 20 : 15, height: isDragging ? 20 : 15)
                         .overlay(Circle().strokeBorder(Theme.background, lineWidth: 2))
-                        .offset(x: max(0, width * fraction) - (isDragging ? 9 : 7))
+                        .offset(x: max(0, width * fraction) - (isDragging ? 10 : 7.5))
                 }
-                .frame(height: 28)
+                .frame(height: 30)
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 0)
@@ -141,42 +206,9 @@ struct TechSlider: View {
                         }
                 )
             }
-            .frame(height: 28)
+            .frame(height: 30)
         }
         .animation(.easeOut(duration: 0.12), value: isDragging)
-    }
-}
-
-/// Segmented picker drawn from small vector glyphs rather than text.
-struct ShapePicker: View {
-    @Binding var selection: CellShape
-    @Environment(\.signalAccent) private var accent
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(CellShape.allCases) { shape in
-                Button {
-                    selection = shape
-                } label: {
-                    VStack(spacing: 7) {
-                        ShapeGlyph(shape: shape)
-                            .fill(selection == shape ? accent : Theme.secondary)
-                            .frame(width: 16, height: 16)
-                        Text(shape.label).railLabelStyle(selection == shape ? Theme.primary : Theme.tertiary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(selection == shape ? Color.white.opacity(0.05) : .clear)
-                    )
-                    .hairlineBorder(RoundedRectangle(cornerRadius: 12, style: .continuous),
-                                    colour: selection == shape ? Theme.hairlineStrong : Theme.hairline)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .animation(.easeOut(duration: 0.14), value: selection)
     }
 }
 
@@ -203,7 +235,74 @@ struct ShapeGlyph: Shape {
     }
 }
 
+/// A 3x3 lattice of the given module shape, used as the "Pixels" glyph.
+struct LatticeGlyph: View {
+    let shape: CellShape
+    var colour: Color = Theme.primary
+
+    var body: some View {
+        VStack(spacing: 3) {
+            ForEach(0..<3, id: \.self) { _ in
+                HStack(spacing: 3) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        ShapeGlyph(shape: shape).fill(colour).frame(width: 4.5, height: 4.5)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A finder pattern drawn at glyph scale, used as the "Eyes" control.
+struct FinderGlyph: View {
+    let style: FinderStyle
+    var colour: Color = Theme.primary
+
+    var body: some View {
+        ZStack {
+            shape.strokeBorder(colour, lineWidth: 2.6).frame(width: 20, height: 20)
+            innerShape.fill(colour).frame(width: 7, height: 7)
+        }
+    }
+
+    private var shape: AnyInsettableShape {
+        switch style {
+        case .square: return AnyInsettableShape(Rectangle())
+        case .rounded: return AnyInsettableShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        case .circle: return AnyInsettableShape(Circle())
+        }
+    }
+
+    private var innerShape: AnyShape {
+        switch style {
+        case .square: return AnyShape(Rectangle())
+        case .rounded: return AnyShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+        case .circle: return AnyShape(Circle())
+        }
+    }
+}
+
+/// Type-erased insettable shape, so the finder glyph can switch outline styles.
+struct AnyInsettableShape: InsettableShape {
+    private let makePath: (CGRect) -> Path
+    private let makeInset: (CGFloat) -> AnyInsettableShape
+    private let inset: CGFloat
+
+    init<S: InsettableShape>(_ shape: S, inset: CGFloat = 0) {
+        self.inset = inset
+        self.makePath = { shape.inset(by: inset).path(in: $0) }
+        self.makeInset = { AnyInsettableShape(shape, inset: inset + $0) }
+    }
+
+    func path(in rect: CGRect) -> Path { makePath(rect) }
+    func inset(by amount: CGFloat) -> AnyInsettableShape { makeInset(amount) }
+}
+
 /// The bottom chrome. Controls live here; content never does.
+///
+/// The opaque floor behind the glass matters: a glass layer with nothing solid
+/// beneath it samples whatever sits behind the window, which is how the action
+/// button ended up tinted by the desktop.
 struct BottomBar<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -212,12 +311,10 @@ struct BottomBar<Content: View>: View {
             Hairline()
             content
                 .padding(.horizontal, Theme.gutter)
-                .padding(.top, 16)
-                .padding(.bottom, 8)
+                .padding(.top, 18)
+                .padding(.bottom, 6)
         }
-        .background(.clear)
-        .liquidGlass(UnevenRoundedRectangle(topLeadingRadius: 24, bottomLeadingRadius: 0,
-                                            bottomTrailingRadius: 0, topTrailingRadius: 24,
-                                            style: .continuous))
+        .liquidGlass(Rectangle())
+        .background(Theme.background)
     }
 }

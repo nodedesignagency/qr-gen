@@ -61,7 +61,10 @@ final class AppModel {
     private(set) var verification: VerificationReport?
     private(set) var verifiedRender: VerifiedRender?
     private(set) var isVerifying = false
-    var resolveProgress: Double = 1
+    /// Bumped whenever the symbol should play its resolve animation. The preview
+    /// watches this rather than a stepped progress value, so the animation is
+    /// driven by the display link instead of the main actor.
+    private(set) var resolveToken = UUID()
 
     // MARK: Export
 
@@ -164,7 +167,12 @@ final class AppModel {
     // MARK: - Render intents
 
     /// Coalesces rapid changes — a slider drag produces one render, not sixty.
-    func schedulePreview(debounce: Duration = .milliseconds(70)) {
+    ///
+    /// `animate` is for the moments worth a beat of motion: generating for the
+    /// first time, or landing on a verified result. Slider tweaks re-render
+    /// silently, because replaying the sequence on every frame of a drag would be
+    /// unusable.
+    func schedulePreview(debounce: Duration = .milliseconds(70), animate: Bool = false) {
         guard !payload.isEmpty, resolvedURL != nil else { return }
         previewTask?.cancel()
         let payload = payload
@@ -182,6 +190,7 @@ final class AppModel {
                 guard !Task.isCancelled else { return }
                 self.plan = plan
                 self.renderError = nil
+                if animate { self.resolveToken = UUID() }
             } catch is CancellationError {
                 return
             } catch {
@@ -202,7 +211,6 @@ final class AppModel {
         guard !payload.isEmpty else { return }
         isVerifying = true
         verification = nil
-        resolveProgress = 0
         defer { isVerifying = false }
 
         do {
@@ -212,30 +220,16 @@ final class AppModel {
             plan = result.plan
             verification = result.report
             config = result.config
-            await playResolve()
+            resolveToken = UUID()
         } catch {
             renderError = error.localizedDescription
-            resolveProgress = 1
         }
     }
 
     /// Replays the resolve animation, for when the user picks another
     /// choreography and wants to see it run.
-    func replayResolve() async {
-        resolveProgress = 0
-        await playResolve()
-    }
-
-    /// Steps the resolve animation. Driven here rather than by the view so the
-    /// verify screen and the export preview share one timeline.
-    private func playResolve(duration: Double = 1.05) async {
-        let frames = Int(duration * 60)
-        for frame in 0...frames {
-            resolveProgress = Double(frame) / Double(frames)
-            try? await Task.sleep(for: .milliseconds(16))
-            if Task.isCancelled { break }
-        }
-        resolveProgress = 1
+    func replayResolve() {
+        resolveToken = UUID()
     }
 
     // MARK: - Export intents
@@ -310,7 +304,7 @@ final class AppModel {
         switch stage {
         case .input:
             stage = .tune
-            schedulePreview(debounce: .zero)
+            schedulePreview(debounce: .zero, animate: true)
         case .tune:
             stage = .verify
         case .verify:
