@@ -212,12 +212,42 @@ final class AppModel {
 
     /// Drops a generated symbol once its inputs change, so the page never shows a
     /// code that no longer matches what is on screen.
+    ///
+    /// On the input page the card is drawn back into the island rather than
+    /// vanishing: the same sequence that produced it, run backwards.
     private func discardGeneratedResult() {
-        guard verifiedRender != nil else { return }
+        guard let withdrawn = verifiedRender else { return }
         verifiedRender = nil
         verification = nil
-        generatingPlan = nil
         plan = nil
+
+        // The inputs are locked while the sequence runs, so this only lands
+        // mid-sequence if something changed underneath us. Stop it: `generate()`
+        // checks the phase after every wait and drops a result nobody asked for.
+        if generatePhase == .working || generatePhase == .printing {
+            generatingPlan = nil
+            generatePhase = .idle
+            return
+        }
+        guard stage == .input, generatePhase == .idle else {
+            generatingPlan = nil
+            return
+        }
+
+        generatingPlan = withdrawn.plan
+        printStart = .now
+        generatePhase = .retracting
+        Task { [weak self] in
+            // A soft tick as the drop rejoins the island.
+            let merge = LiquidTimeline.retractDuration * 0.78
+            try? await Task.sleep(for: .seconds(merge))
+            guard let self, self.generatePhase == .retracting else { return }
+            Haptics.impact(.soft, intensity: 0.4)
+            try? await Task.sleep(for: .seconds(LiquidTimeline.retractDuration - merge))
+            guard self.generatePhase == .retracting else { return }
+            self.generatingPlan = nil
+            self.generatePhase = .idle
+        }
     }
 
     var currentPalette: Palette {
@@ -226,12 +256,13 @@ final class AppModel {
 
     // MARK: - Generate
 
-    /// Renders, verifies, then prints the result onto the page.
+    /// Renders, verifies, then lets the island drop the result onto the page.
     ///
-    /// The verify loop runs first and the slot holds a small working state while
+    /// The verify loop runs first, and a small drop hangs from the island while
     /// it does, because the loop's duration depends on the artwork and a fixed
     /// animation cannot cover a variable wait honestly. Once there is a verified
-    /// symbol, one continuous timeline prints it.
+    /// symbol, one continuous timeline lets the drop go and spreads it into the
+    /// card.
     ///
     /// Nothing navigates. The card lands in the frame this page already keeps for
     /// it, and the page becomes the result.
@@ -244,14 +275,16 @@ final class AppModel {
         let palette = currentPalette
 
         generatePhase = .working
-        Haptics.impact(.soft, intensity: 0.6)
+        Haptics.impact(.soft, intensity: 0.5)
 
         let result = try? await pipeline.render(payload: payload, silhouette: silhouette,
                                                 config: config, palette: palette)
-        guard let result else {
+        guard let result, generatePhase == .working else {
             generatePhase = .idle
-            renderError = RenderPipelineError.couldNotVerify.localizedDescription
-            Haptics.warning()
+            if result == nil {
+                renderError = RenderPipelineError.couldNotVerify.localizedDescription
+                Haptics.warning()
+            }
             return
         }
 
@@ -262,18 +295,23 @@ final class AppModel {
 
         printStart = .now
         generatePhase = .printing
-        Haptics.impact(.rigid, intensity: 0.85)
 
-        // Soft ticks while it feeds, like a roller advancing. They stop when the
-        // card is clear of the slot.
-        for _ in 0..<6 {
-            try? await Task.sleep(for: .milliseconds(215))
-            Haptics.impact(.light, intensity: 0.32)
-        }
-        try? await Task.sleep(for: .milliseconds(910))
+        // The haptics follow the liquid: a soft tick as the neck snaps, a firmer
+        // one as the card lands, and the success once the symbol has developed.
+        let snap = LiquidTimeline.breakAt * LiquidTimeline.duration
+        let land = LiquidTimeline.landAt * LiquidTimeline.duration
+        try? await Task.sleep(for: .seconds(snap))
+        guard generatePhase == .printing else { return }
+        Haptics.impact(.soft, intensity: 0.55)
+        try? await Task.sleep(for: .seconds(land - snap))
+        guard generatePhase == .printing else { return }
+        Haptics.impact(.rigid, intensity: 0.7)
+        try? await Task.sleep(for: .seconds(LiquidTimeline.duration - land))
+        guard generatePhase == .printing else { return }
 
         // The page takes the card over at exactly the frame the overlay left it.
         plan = result.plan
+        generatingPlan = nil
         generatePhase = .idle
         Haptics.success()
     }

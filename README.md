@@ -55,24 +55,33 @@ likeness for nothing.
 
 ## The generate animation
 
-Tapping Generate opens a slot at the top of the screen, feeds a blank card out
-of it, and develops the symbol onto the card.
+Tapping Generate makes the Dynamic Island let go of a drop, and the drop
+spreads into the card.
 
-What develops is the verify loop's own attempt log. One clean print means the
-first render decoded; each visible re-exposure is a pass that failed and made
-the loop step the logo back. The card is the real plan, so what is watched
-printing is byte-identical to the PNG that comes out of the exporter, and the
-development is the same module choreography the app uses everywhere else.
+The island's lower edge bulges, the bulge hangs into a drop, the drop stretches
+into a pill and its neck snaps. What the island keeps springs back. The freed
+drop falls and spreads into the card — its width first, then its lower edge,
+each on its own spring — and the symbol develops as it lands. Change the URL or
+the logo afterwards and the same sequence runs backwards: the modules leave, the
+card is pulled up into a drop, and the island takes it back.
 
-The slot is not the real Dynamic Island. An app cannot animate that — it belongs
-to the system, and ActivityKit only ever hands it content, never frame-by-frame
-control. This draws its own black pill in the same place, sized off the top safe
-area. The real island is opaque black, so a black shape growing out from behind
-it reads as one object; on a device without an island it is simply a floating
-pill, which still reads as a slot.
+Everything on screen is a pure function of one clock, which is what makes it
+scrubbable and reversible. The join between drop and island is a pair of fillets
+tangent to both — the surface-tension shape — and it is drawn as geometry rather
+than as a blur-and-threshold metaball, so it needs no Metal, stays crisp at any
+scale, and can be tuned frame by frame in `Tools/liquid_proto.py`, which draws
+the same shapes the app does.
 
-Passes are capped at three on screen. A stubborn logo can take five rungs of the
-fallback ladder, and watching all of them would stop being a flourish.
+The island itself is never drawn. An app cannot animate it — it belongs to the
+system, and ActivityKit only ever hands it content, never frame-by-frame
+control. The drop's neck springs from a line just behind the island's lower
+edge, derived from the top safe area rather than measured on one handset, so
+the join is hidden under the real thing. On a device without an island a black
+pill stands in.
+
+The card is the real plan, so what is watched developing is byte-identical to
+the PNG that comes out of the exporter, and the development is the module
+choreography the user picked, the same one the app uses everywhere else.
 
 ## Verification
 

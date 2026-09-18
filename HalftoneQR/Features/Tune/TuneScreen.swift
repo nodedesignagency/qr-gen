@@ -119,16 +119,6 @@ struct MotionGlyph: View {
             LatticeGlyph(shape: .dot, colour: Theme.primary)
         case .structureFirst:
             FinderGlyph(style: .rounded)
-        case .feed:
-            // Internal to the print and never offered in the picker, but spelled
-            // out rather than defaulted so a new order still forces a decision
-            // here instead of silently drawing the wrong mark.
-            VStack(spacing: 4) {
-                ForEach(0..<3, id: \.self) { index in
-                    Capsule().fill(Theme.primary.opacity(index == 2 ? 1 : 0.4))
-                        .frame(width: 20, height: 2.5)
-                }
-            }
         }
     }
 }

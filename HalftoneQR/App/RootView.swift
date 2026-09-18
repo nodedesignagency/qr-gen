@@ -25,7 +25,6 @@ struct RootView: View {
                 PrintSequenceOverlay(phase: model.generatePhase,
                                      plan: model.generatingPlan,
                                      choreography: model.choreography,
-                                     accent: model.accentColour,
                                      destination: cardSlot,
                                      start: model.printStart)
                     .transition(.opacity)

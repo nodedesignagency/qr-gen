@@ -25,9 +25,9 @@ struct InputScreen: View {
 
             VStack(spacing: 0) {
                 title
-                    // The card passes straight over this on its way down, so the
-                    // title steps aside while the print is running.
-                    .opacity(model.generatePhase == .printing ? 0 : 1)
+                    // The card passes straight over this on its way down and
+                    // back up, so the title steps aside while it is moving.
+                    .opacity(model.generatePhase.isMovingCard ? 0 : 1)
                     .animation(.easeOut(duration: 0.28), value: model.generatePhase)
                     .padding(.top, 10)
                     .padding(.bottom, 30)
@@ -36,9 +36,13 @@ struct InputScreen: View {
                     .frame(maxWidth: surfaceWidth)
                     .padding(.bottom, 22)
                     .animation(.easeOut(duration: 0.28), value: showsResultSlot)
+                    // Changing the inputs mid-sequence would pull the result out
+                    // from under the animation, so they wait for it to finish.
+                    .allowsHitTesting(!model.generatePhase.isRunning)
 
                 urlSurface
                     .frame(maxWidth: surfaceWidth)
+                    .allowsHitTesting(!model.generatePhase.isRunning)
 
                 if let analysis = model.analysis, !analysis.isUsable, showsDetail {
                     adviceSurface(analysis)
@@ -93,10 +97,11 @@ struct InputScreen: View {
     // MARK: - Upload
 
     /// The page keeps one slot. Before generating it is the upload card; from the
-    /// moment printing starts it is the square the card will land in, so the
-    /// overlay has somewhere exact to hand over to and nothing jumps.
+    /// moment the drop lets go it is the square the card will land in, so the
+    /// overlay has somewhere exact to hand over to and nothing jumps. It stays
+    /// while the card is drawn back, for the same reason in reverse.
     private var showsResultSlot: Bool {
-        model.generatePhase == .printing || model.verifiedRender != nil
+        model.generatePhase.isMovingCard || model.verifiedRender != nil
     }
 
     @ViewBuilder
@@ -265,6 +270,9 @@ struct InputScreen: View {
             if model.verifiedRender != nil {
                 model.advance()
             } else {
+                // The keyboard would sit over the landing spot, and a keystroke
+                // mid-sequence would discard what is being generated.
+                urlFocused = false
                 Task { await model.generate() }
             }
         } label: {
@@ -292,8 +300,12 @@ struct InputScreen: View {
     }
 
     private var buttonTitle: String {
-        if model.generatePhase.isRunning { return "Generating" }
-        return model.verifiedRender != nil ? "Customise" : "Generate QR Code"
+        switch model.generatePhase {
+        case .working, .printing:
+            return "Generating"
+        case .idle, .retracting:
+            return model.verifiedRender != nil ? "Customise" : "Generate QR Code"
+        }
     }
 
     private var isReady: Bool { model.canContinueFromInput }
