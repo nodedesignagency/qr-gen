@@ -105,7 +105,7 @@ def frame(t, line, centre_x, target, breath=0.0):
     fall = clamp01((t - STRETCH_END) / (LAND_AT - STRETCH_END))
     width_curve = spring(fall / 0.62, overshoot=0.02)
     top_curve = spring(fall / 0.86, overshoot=0.04)
-    bottom_curve = spring(clamp01((fall - 0.08) / 0.92), overshoot=0.05)
+    bottom_curve = spring(clamp01((fall - 0.04) / 0.96), overshoot=0.05)
 
     width = lerp(drop_width, tw, width_curve)
     top = lerp(drop_top, ty, top_curve)
@@ -117,8 +117,8 @@ def frame(t, line, centre_x, target, breath=0.0):
 
     neck = lerp(14, 16, segment(t, 0, SWELL_END)) * (1 - segment(t, SWELL_END, STRETCH_END))
 
-    dark_bottom = 1 - segment(t, 0.05, 0.17)
-    dark_top = 1 - segment(t, 0.10, 0.26)
+    dark_bottom = 1 - segment(t, 0.06, 0.14)
+    dark_top = 1 - 0.65 * segment(t, 0.09, 0.15) - 0.35 * segment(t, 0.15, 0.32)
 
     residual = 0.0
     since_break = (t - BREAK_AT) * DURATION

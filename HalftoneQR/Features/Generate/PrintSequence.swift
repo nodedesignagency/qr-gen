@@ -51,6 +51,14 @@ enum IslandMetrics {
     /// show as a gap between the two.
     static let tuck: CGFloat = 4
 
+    @MainActor
+    private static var keyWindow: UIWindow? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }
+    }
+
     /// The top safe area inset, read from the window.
     ///
     /// Not from a `GeometryReader` inside the overlay: `ignoresSafeArea()` works
@@ -59,11 +67,13 @@ enum IslandMetrics {
     /// the stand-in pill ended up drawn over the top of a real island.
     @MainActor
     static var topSafeArea: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first { $0.isKeyWindow }?
-            .safeAreaInsets.top ?? 0
+        keyWindow?.safeAreaInsets.top ?? 0
+    }
+
+    /// The screen's width, read from the window. The island sits at its centre.
+    @MainActor
+    static var screenWidth: CGFloat? {
+        keyWindow?.bounds.width
     }
 }
 
@@ -199,7 +209,7 @@ enum LiquidTimeline {
         let fall = clamp01((t - stretchEnd) / (landAt - stretchEnd))
         let widthCurve = spring(fall / 0.62, overshoot: 0.02)
         let topCurve = spring(fall / 0.86, overshoot: 0.04)
-        let bottomCurve = spring(clamp01((fall - 0.08) / 0.92), overshoot: 0.05)
+        let bottomCurve = spring(clamp01((fall - 0.04) / 0.96), overshoot: 0.05)
 
         let width = lerp(dropWidth, target.width, widthCurve)
         let top = lerp(dropTop, target.minY, topCurve)
@@ -214,10 +224,13 @@ enum LiquidTimeline {
         // Broad shoulders while it hangs, thinning as it stretches, then gone.
         let neck = lerp(14, 16, segment(t, 0, swellEnd)) * (1 - segment(t, swellEnd, stretchEnd))
 
-        // The bottom lightens first and the top follows, so the black drains
-        // out of the drop downwards, away from the island.
-        let darkBottom = 1 - segment(t, 0.05, 0.17)
-        let darkTop = 1 - segment(t, 0.10, 0.26)
+        // The black drains out of the drop downwards, away from the island. The
+        // bottom is paper by the time the neck snaps, and the top keeps a little
+        // grey into the fall, so what leaves is the card and not a piece of
+        // island — and the colour is never changing at the same instant the
+        // shape is changing fastest.
+        let darkBottom = 1 - segment(t, 0.06, 0.14)
+        let darkTop = 1 - 0.65 * segment(t, 0.09, 0.15) - 0.35 * segment(t, 0.15, 0.32)
 
         // What the island keeps: a bump that springs back with one bounce.
         var residual = 0.0
@@ -440,8 +453,10 @@ struct PrintSequenceOverlay: View {
             // The reader's own inset is zero here (see `IslandMetrics.topSafeArea`);
             // it is kept only as a floor in case the window is unavailable.
             let topInset = max(geometry.safeAreaInsets.top, IslandMetrics.topSafeArea)
+            let origin = geometry.frame(in: .global).origin
             TimelineView(.animation) { timeline in
-                content(now: timeline.date, size: geometry.size, topSafeArea: topInset)
+                content(now: timeline.date, size: geometry.size, origin: origin,
+                        topSafeArea: topInset)
             }
         }
         .ignoresSafeArea()
@@ -460,15 +475,24 @@ struct PrintSequenceOverlay: View {
         }
     }
 
+    /// - Parameter origin: where this view sits in screen coordinates.
+    ///
+    /// Everything is worked out on the screen and moved into this view's space
+    /// at the end. The overlay cannot assume it starts at the screen's corner:
+    /// a stack above it that is wider than the screen — a full-bleed background
+    /// overflowing its container will do it — puts the origin off to one side,
+    /// and a card placed at a screen coordinate would then land that far from
+    /// its slot.
     @ViewBuilder
-    private func content(now: Date, size: CGSize, topSafeArea: CGFloat) -> some View {
-        let target = destination == .zero
-            ? CGRect(x: (size.width - 353) / 2, y: size.height * 0.30, width: 353, height: 353)
-            : destination
+    private func content(now: Date, size: CGSize, origin: CGPoint, topSafeArea: CGFloat) -> some View {
+        let screenWidth = IslandMetrics.screenWidth ?? size.width
+        let fallback = CGRect(x: (screenWidth - 353) / 2, y: size.height * 0.30, width: 353, height: 353)
+        let target = (destination == .zero ? fallback : destination)
+            .offsetBy(dx: -origin.x, dy: -origin.y)
 
-        let slotBottom = IslandMetrics.slotBottom(topSafeArea: topSafeArea)
+        let slotBottom = IslandMetrics.slotBottom(topSafeArea: topSafeArea) - origin.y
         let line = slotBottom - IslandMetrics.tuck
-        let centreX = size.width / 2
+        let centreX = screenWidth / 2 - origin.x
         let t = clock(now: now)
 
         // A slow breath while it waits, taken from the wall clock so its phase

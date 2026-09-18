@@ -24,9 +24,17 @@ struct AppBackground: View {
             if let url = Self.videoURL(named: videoResource) {
                 LoopingPlayerView(url: url)
             } else if UIImage(named: imageResource) != nil {
-                Image(imageResource)
-                    .resizable()
-                    .scaledToFill()
+                // Laid over a clear field and clipped, rather than placed on its
+                // own: a filled image reports its overflowing size to its
+                // container, and every stack above it grows to match — which
+                // puts anything positioned in screen coordinates off to one side.
+                Color.clear
+                    .overlay {
+                        Image(imageResource)
+                            .resizable()
+                            .scaledToFill()
+                    }
+                    .clipped()
             }
             Color.black.opacity(scrimOpacity)
         }
