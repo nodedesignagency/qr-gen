@@ -25,6 +25,10 @@ struct InputScreen: View {
 
             VStack(spacing: 0) {
                 title
+                    // The card passes straight over this on its way down, so the
+                    // title steps aside while the print is running.
+                    .opacity(model.generatePhase == .printing ? 0 : 1)
+                    .animation(.easeOut(duration: 0.28), value: model.generatePhase)
                     .padding(.top, 10)
                     .padding(.bottom, 30)
 

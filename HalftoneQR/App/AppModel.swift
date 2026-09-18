@@ -264,7 +264,13 @@ final class AppModel {
         generatePhase = .printing
         Haptics.impact(.rigid, intensity: 0.85)
 
-        try? await Task.sleep(for: .milliseconds(1_560))
+        // Soft ticks while it feeds, like a roller advancing. They stop when the
+        // card is clear of the slot.
+        for _ in 0..<6 {
+            try? await Task.sleep(for: .milliseconds(215))
+            Haptics.impact(.light, intensity: 0.32)
+        }
+        try? await Task.sleep(for: .milliseconds(1_330))
 
         // The page takes the card over at exactly the frame the overlay left it.
         plan = result.plan

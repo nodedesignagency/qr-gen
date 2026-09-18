@@ -2,14 +2,9 @@ import SwiftUI
 import UIKit
 
 /// Where the generate sequence has got to.
-///
-/// Only two live states. The first attempt at this had six, each handing off to
-/// the next with its own spring, and the springs fought: the offset, the scale
-/// and the mask all settled at different rates, so it snapped instead of
-/// printing. One continuous timeline is smooth by construction.
 enum GeneratePhase: Equatable {
     case idle
-    /// Rendering and verifying. The slot holds a small working state.
+    /// Rendering and verifying. Nothing has come out of the slot yet.
     case working
     /// The card is being printed, driven by a single normalised clock.
     case printing
@@ -19,29 +14,33 @@ enum GeneratePhase: Equatable {
 
 /// Geometry for the Dynamic Island.
 ///
-/// An app cannot animate the real island — it belongs to the system, and
-/// ActivityKit only ever hands it content, never frame-by-frame control. So this
-/// draws its own black pill in the same place. The real island is opaque black,
-/// so a black shape growing out from behind it reads as one object.
+/// The island is never redrawn or resized here. It belongs to the system, it
+/// renders above app content, and it is already the right shape — so it is used
+/// as the slot rather than imitated. Everything above its lower lip is clipped
+/// away, which is what makes the card look like it comes out of the hardware.
 ///
-/// The open size is deliberately close to the closed one. Apple's own expansions
-/// grow the pill by a few points and let the *content* do the work; going much
-/// bigger stops reading as the island and starts reading as a black box.
+/// On a device without an island there is nothing to emerge from, so a small
+/// black pill is drawn instead.
 enum IslandMetrics {
-    static let closedSize = CGSize(width: 126, height: 37)
-    static let openSize = CGSize(width: 168, height: 46)
+    static let size = CGSize(width: 126, height: 37)
     static let topFromScreen: CGFloat = 11
+    /// The card is clipped a little *above* the lip so it tucks behind the real
+    /// island. The system draws the island over app content, so the overlap is
+    /// hidden and there can be no sliver of background between the two.
+    static let tuck: CGFloat = 6
 
-    /// Island devices report a noticeably deeper top inset than notched ones.
     static func hasIsland(topSafeArea: CGFloat) -> Bool { topSafeArea >= 51 }
 
     static func top(topSafeArea: CGFloat) -> CGFloat {
         hasIsland(topSafeArea: topSafeArea) ? topFromScreen : max(topSafeArea - 8, 8)
     }
+
+    static func slotBottom(topSafeArea: CGFloat) -> CGFloat {
+        top(topSafeArea: topSafeArea) + size.height
+    }
 }
 
-/// Smoothstep, clamped. Every motion below is built from these so nothing
-/// overshoots into anything else.
+/// Smoothstep, clamped.
 private func smoothstep(_ t: Double) -> Double {
     let x = min(max(t, 0), 1)
     return x * x * (3 - 2 * x)
@@ -52,31 +51,42 @@ private func segment(_ t: Double, _ start: Double, _ end: Double) -> Double {
     smoothstep((t - start) / (end - start))
 }
 
-/// The generate animation: the slot opens, a card slides out of it, develops on
-/// the way down, and settles into the frame the page already has waiting.
+/// The generate animation.
+///
+/// Three overlapping windows on one clock, in the order a real instant camera
+/// does them:
+///
+/// 1. **Extrude.** The card feeds straight down out of the slot at the island's
+///    own width, at a constant width, slowly. It stays touching the slot the
+///    whole way — it is pushed out, not thrown.
+/// 2. **Release.** Once it is clear it detaches, grows to full size and settles
+///    into the frame the page keeps for it.
+/// 3. **Develop.** The image comes up late and finishes after the card lands,
+///    the way a print does.
 struct PrintSequenceOverlay: View {
     let phase: GeneratePhase
     let plan: RenderPlan?
     let choreography: Choreography
     let accent: Color
-    /// Where the card is going, in global coordinates — the slot the page keeps
-    /// for it, so the overlay can hand over without anything jumping.
+    /// Where the card is going, in global coordinates.
     let destination: CGRect
     let start: Date
 
-    /// Long enough to read as a mechanism, short enough not to be in the way.
-    private let duration: Double = 1.55
-    private let emergingWidth: CGFloat = 148
+    /// Slow on purpose. The reference takes about this long, and the whole point
+    /// is that it reads as a mechanism doing work.
+    private let duration: Double = 2.6
 
     var body: some View {
         GeometryReader { geometry in
             let topInset = geometry.safeAreaInsets.top
             TimelineView(.animation) { timeline in
-                let t = clock(now: timeline.date)
-                content(t: t, size: geometry.size, topSafeArea: topInset)
+                content(t: clock(now: timeline.date),
+                        size: geometry.size,
+                        topSafeArea: topInset)
             }
         }
         .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 
     private func clock(now: Date) -> Double {
@@ -86,53 +96,46 @@ struct PrintSequenceOverlay: View {
 
     @ViewBuilder
     private func content(t: Double, size: CGSize, topSafeArea: CGFloat) -> some View {
-        // If the page has not reported its slot yet, aim for a sensible centre
-        // rather than flying the card to the origin.
         let target = destination == .zero
-            ? CGRect(x: (size.width - 353) / 2, y: size.height * 0.26, width: 353, height: 353)
+            ? CGRect(x: (size.width - 353) / 2, y: size.height * 0.30, width: 353, height: 353)
             : destination
-        let open = phase == .printing ? segment(t, 0, 0.22) : 0
-        let travel = segment(t, 0.08, 0.60)
-        let develop = segment(t, 0.26, 0.92)
-        let islandTop = IslandMetrics.top(topSafeArea: topSafeArea)
-        let islandHeight = lerp(IslandMetrics.closedSize.height, IslandMetrics.openSize.height, open)
-        let slotBottom = islandTop + islandHeight
 
-        // The card leaves the slot small and arrives at exactly the frame the
-        // page is holding for it.
-        let width = lerp(emergingWidth, target.width, travel)
-        let centreX = lerp(size.width / 2, target.midX, travel)
-        let centreY = lerp(slotBottom + emergingWidth / 2 - 14, target.midY, travel)
+        let slotBottom = IslandMetrics.slotBottom(topSafeArea: topSafeArea)
+        let emergeWidth = IslandMetrics.size.width
+
+        // The card feeds out at the slot's width, then is released and grows.
+        let extrude = segment(t, 0.02, 0.52)
+        let release = segment(t, 0.52, 0.80)
+        let develop = segment(t, 0.34, 1.0)
+
+        let width = emergeWidth + (target.width - emergeWidth) * CGFloat(release)
+        let extrudedCentre = slotBottom - emergeWidth / 2 + emergeWidth * CGFloat(extrude)
+        let centreY = extrudedCentre + (target.midY - extrudedCentre) * CGFloat(release)
+        let centreX = size.width / 2 + (target.midX - size.width / 2) * CGFloat(release)
 
         ZStack {
-            Color.black
-                .opacity(0.30 * segment(t, 0, 0.25) * (1 - segment(t, 0.86, 1)))
-                .ignoresSafeArea()
+            if !IslandMetrics.hasIsland(topSafeArea: topSafeArea) {
+                // Nothing to emerge from, so give it a slot of its own.
+                RoundedRectangle(cornerRadius: IslandMetrics.size.height / 2, style: .continuous)
+                    .fill(Color.black)
+                    .frame(width: IslandMetrics.size.width, height: IslandMetrics.size.height)
+                    .position(x: size.width / 2,
+                              y: IslandMetrics.top(topSafeArea: topSafeArea) + IslandMetrics.size.height / 2)
+            }
 
             if let plan {
                 PrintedCard(plan: plan, choreography: choreography, progress: develop)
                     .frame(width: width, height: width)
                     .position(x: centreX, y: centreY)
-                    .shadow(color: .black.opacity(0.22 * travel),
-                            radius: 22 * travel, y: 10 * travel)
+                    // The shadow only arrives once the card is clear of the slot;
+                    // while it is still in there it has nothing to cast onto.
+                    .shadow(color: .black.opacity(0.24 * release),
+                            radius: 24 * release, y: 12 * release)
+                    .mask(alignment: .bottom) {
+                        Rectangle().padding(.top, slotBottom - IslandMetrics.tuck)
+                    }
             }
         }
-        // Nothing above the slot's lower lip draws, so the card genuinely comes
-        // out of the island rather than appearing beside it.
-        .mask(alignment: .bottom) {
-            Rectangle().padding(.top, slotBottom)
-        }
-        .overlay(alignment: .top) {
-            IslandShim(width: lerp(IslandMetrics.closedSize.width,
-                                   IslandMetrics.openSize.width, open),
-                       height: islandHeight,
-                       top: islandTop,
-                       isWorking: phase == .working)
-        }
-    }
-
-    private func lerp(_ a: CGFloat, _ b: CGFloat, _ t: Double) -> CGFloat {
-        a + (b - a) * CGFloat(t)
     }
 }
 
@@ -147,33 +150,7 @@ struct PrintedCard: View {
 
     var body: some View {
         ModuleResolveCanvas(plan: plan, progress: progress, choreography: choreography)
-            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-    }
-}
-
-/// The black pill standing in for the Dynamic Island.
-struct IslandShim: View {
-    let width: CGFloat
-    let height: CGFloat
-    let top: CGFloat
-    let isWorking: Bool
-
-    @State private var pulse = false
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-            .fill(Color.black)
-            .frame(width: width, height: height)
-            .scaleEffect(isWorking && pulse ? 1.035 : 1)
-            .offset(y: top)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .onAppear {
-                guard isWorking else { return }
-                withAnimation(.easeInOut(duration: 0.62).repeatForever(autoreverses: true)) {
-                    pulse = true
-                }
-            }
-            .allowsHitTesting(false)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }
 
