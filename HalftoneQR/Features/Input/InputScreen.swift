@@ -67,6 +67,13 @@ struct InputScreen: View {
                         .animation(.spring(response: 0.5, dampingFraction: 0.72), value: controlsShown)
                         .allowsHitTesting(controlsShown && !model.generatePhase.isRunning)
                 } else {
+                    if model.logo == nil, !SampleLogo.all.isEmpty {
+                        sampleRow
+                            .frame(maxWidth: surfaceWidth)
+                            .padding(.top, 14)
+                            .allowsHitTesting(!model.generatePhase.isRunning)
+                    }
+
                     urlSurface
                         .frame(maxWidth: surfaceWidth)
                         .padding(.top, 22)
@@ -169,6 +176,9 @@ struct InputScreen: View {
                            choreography: model.choreography,
                            isScanning: model.isVerifying,
                            cornerRadius: CGFloat(LiquidTimeline.cardRadius))
+                        // The same shadow the card landed with, so nothing about
+                        // it changes when the page takes it over.
+                        .shadow(color: .black.opacity(0.18), radius: 18, y: 9)
                 }
             }
             .frame(width: surfaceWidth, height: surfaceWidth)
@@ -191,6 +201,8 @@ struct InputScreen: View {
         }
     }
 
+    /// Tapping the surface opens Files; the two icons offer Photos as well,
+    /// which is where an image dropped onto the simulator ends up.
     private var emptyUpload: some View {
         VStack(spacing: 10) {
             UploadMark(size: 96)
@@ -200,6 +212,17 @@ struct InputScreen: View {
         }
         .padding(.horizontal, 21)
         .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .overlay(alignment: .topTrailing) {
+            HStack(spacing: 8) {
+                PhotosPicker(selection: $photoItem, matching: .images) {
+                    surfaceIcon("photo")
+                }
+                Button { isImporting = true } label: { surfaceIcon("folder") }
+                    .buttonStyle(.plain)
+            }
+            .padding(12)
+        }
     }
 
     /// Once a mark is loaded the same surface shows the silhouette the planner
@@ -265,6 +288,38 @@ struct InputScreen: View {
             .foregroundStyle(.white.opacity(0.85))
             .frame(width: 28, height: 28)
             .background(Circle().fill(.white.opacity(0.18)))
+    }
+
+    /// The marks bundled with the app, for trying it without a file to hand.
+    private var sampleRow: some View {
+        HStack(spacing: 10) {
+            Text("Try a sample")
+                .snType(15, weight: .medium)
+                .foregroundStyle(.white.opacity(0.85))
+            Spacer(minLength: 8)
+            ForEach(SampleLogo.all) { sample in
+                Button {
+                    Task {
+                        if let image = await ImageDecoder.load(contentsOf: sample.url) {
+                            await model.setLogo(image, name: sample.name)
+                        }
+                    }
+                } label: {
+                    Image(uiImage: sample.image)
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundStyle(.white)
+                        .padding(11)
+                        .frame(width: 46, height: 46)
+                        .background(Circle().fill(.white.opacity(0.18)))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 21)
+        .padding(.vertical, 12)
+        .glassSurface(cornerRadius: radius)
     }
 
     // MARK: - URL

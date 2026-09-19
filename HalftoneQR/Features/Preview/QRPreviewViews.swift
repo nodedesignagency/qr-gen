@@ -2,10 +2,12 @@ import SwiftUI
 
 /// The hero: the symbol on its paper card, big and centred with room around it.
 ///
-/// While the resolve animation runs, the symbol is drawn live from the real
-/// plan geometry — the same cells the exporter writes. When it finishes, the
-/// rendered bitmap takes over in the same frame, and because the two are the
-/// same geometry the hand-over is invisible.
+/// The symbol is drawn live from the real plan geometry — the same cells the
+/// exporter writes — whether it is resolving or at rest. There is no bitmap to
+/// swap in at the end: the drawing that animates is the drawing that stays, so
+/// nothing about the symbol can change when an animation completes. The
+/// exports render their own bitmaps from the same geometry, in the same colour
+/// space.
 ///
 /// The animation is driven by `TimelineView` off a start date, not by stepping a
 /// published value on the main actor — that stutters and drifts.
@@ -22,8 +24,6 @@ struct QRCard: View {
 
     @State private var startedAt: Date?
     @State private var playedKey: UUID?
-    @State private var rendered: CGImage?
-    @State private var renderedPlanID: UUID?
 
     var body: some View {
         GeometryReader { geometry in
@@ -46,15 +46,6 @@ struct QRCard: View {
             guard !Task.isCancelled else { return }
             startedAt = nil
         }
-        .task(id: plan?.id) {
-            guard let plan else { return }
-            let image = await Task.detached(priority: .userInitiated) {
-                RasterRenderer.image(for: plan, pixelSize: 1200).map(SendableImage.init)
-            }.value
-            guard !Task.isCancelled else { return }
-            rendered = image?.image
-            renderedPlanID = plan.id
-        }
     }
 
     @ViewBuilder
@@ -67,20 +58,13 @@ struct QRCard: View {
                 plan.palette.paper.swiftUIColor
 
                 if let startedAt {
-                    // Live module-resolution drawing until the sequence completes,
-                    // then the bitmap takes over in the same frame position.
                     TimelineView(.animation) { timeline in
                         let elapsed = timeline.date.timeIntervalSince(startedAt)
-                        let progress = min(max(elapsed / duration, 0), 1)
-                        if progress < 1 {
-                            PlanResolveCanvas(plan: plan, progress: progress,
-                                              choreography: choreography, drawsPaper: false)
-                        } else {
-                            settled(plan: plan)
-                        }
+                        PlanResolveCanvas(plan: plan, progress: min(max(elapsed / duration, 0), 1),
+                                          choreography: choreography, drawsPaper: false)
                     }
                 } else {
-                    settled(plan: plan)
+                    PlanResolveCanvas(plan: plan, progress: 1, choreography: choreography, drawsPaper: false)
                 }
             } else {
                 EmptyCardPlaceholder()
@@ -90,28 +74,13 @@ struct QRCard: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius ?? side * 0.085, style: .continuous))
     }
-
-    @ViewBuilder
-    private func settled(plan: RenderPlan) -> some View {
-        if let rendered, renderedPlanID == plan.id {
-            Image(decorative: rendered, scale: 1, orientation: .up)
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-        } else {
-            // The bitmap is still rendering; the live canvas stands in so there
-            // is never an empty frame.
-            PlanResolveCanvas(plan: plan, progress: 1, choreography: choreography, drawsPaper: false)
-        }
-    }
 }
 
 /// Live drawing of a plan part-way through its resolve, at the real geometry.
 ///
 /// Draws `plan.revealed(by:at:)` — the same primitives the exporter writes, at
-/// their real shapes and sizes — so the last frame *is* the still, and nothing
-/// changes style when the rendered bitmap takes over. Each colour group is one
-/// path fill, so a dense symbol costs a handful of fills per frame.
+/// their real shapes and sizes — so the last frame *is* the still. Each colour
+/// group is one path fill, so a dense symbol costs a handful of fills per frame.
 struct PlanResolveCanvas: View {
     let plan: RenderPlan
     let progress: Double

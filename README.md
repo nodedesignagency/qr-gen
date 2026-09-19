@@ -76,8 +76,10 @@ a soft tick at the snap, a firm one on landing, the bang, a ratchet as the
 cells fall in, and a harder tick as the finders lock.
 
 The resolve is drawn live from the plan's real geometry — the same cells, at
-the same shapes and sizes, as the still — so the last frame *is* the export
-and nothing changes style when the rendered bitmap takes over.
+the same shapes and sizes, as the still — and that drawing is the one that
+stays: there is no bitmap swapped in at the end, so nothing about the symbol
+can change when the animation completes. The exports render their own bitmaps
+from the same geometry, tagged sRGB, the space the colours are specified in.
 
 The page becomes the customise page as the card touches down: the inputs give
 way and the controls rise into place under the card. Tap Edit and the same
@@ -139,10 +141,12 @@ density above 0.12. Each produces a specific headline and a specific suggestion.
 
 ## Screens
 
-1. **Input** — drop zone for the mark (PNG, SVG, PDF, JPEG, HEIC), field for the
-   URL. Warns when the destination is long, since more modules means smaller
-   blocks. If there is no logo, `og:image` / `apple-touch-icon` and
-   `theme-color` are pulled from the site as a fallback.
+1. **Input** — drop zone for the mark (PNG, SVG, PDF, JPEG, HEIC) from Files or
+   Photos, three bundled sample marks to try it with, and a field for the URL.
+   Warns when the destination is long, since more modules means smaller blocks.
+   If there is no logo, `og:image` / `apple-touch-icon` and `theme-color` are
+   pulled from the site as a fallback. Any `sample-*.png` dropped into
+   `HalftoneQR/Resources/Samples/` becomes a sample.
 2. **Customise** — the same page, once the card has landed: one slider for logo
    strength, three module shapes, three finder styles, the centre emblem and
    the resolve order, all on glass under the card. Every change re-renders a

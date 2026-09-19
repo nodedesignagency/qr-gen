@@ -166,8 +166,14 @@ struct RGB: Sendable, Equatable, Hashable {
                Int((red * 255).rounded()), Int((green * 255).rounded()), Int((blue * 255).rounded()))
     }
 
+    /// In sRGB, explicitly. `CGColor(red:green:blue:alpha:)` makes a Generic RGB
+    /// colour, whose 1.8 gamma lightens every mid-tone on the way to an sRGB
+    /// screen or file: the exports came out a visibly lighter blue than the app
+    /// showed. The app's own `Color` is sRGB, so this keeps the two the same.
     var cgColor: CGColor {
-        CGColor(red: red, green: green, blue: blue, alpha: 1)
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        return CGColor(colorSpace: srgb, components: [CGFloat(red), CGFloat(green), CGFloat(blue), 1])
+            ?? CGColor(red: red, green: green, blue: blue, alpha: 1)
     }
 
     var swiftUIColor: Color {

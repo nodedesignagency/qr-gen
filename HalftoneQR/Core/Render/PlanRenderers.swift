@@ -13,9 +13,12 @@ enum RasterRenderer {
     /// cannot be created, which in practice means an absurd size.
     static func image(for plan: RenderPlan, pixelSize: Int) -> CGImage? {
         let side = max(pixelSize, 16)
+        // Tagged sRGB, the same space the colours are specified in, so the file
+        // carries exactly the colour the app shows.
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         guard let context = CGContext(data: nil, width: side, height: side,
                                       bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      space: srgb,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         context.setAllowsAntialiasing(true)

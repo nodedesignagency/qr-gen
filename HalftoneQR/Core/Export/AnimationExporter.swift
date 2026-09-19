@@ -119,7 +119,7 @@ enum AnimationExporter {
             data: CVPixelBufferGetBaseAddress(buffer),
             width: side, height: side, bitsPerComponent: 8,
             bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-            space: CGColorSpaceCreateDeviceRGB(),
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue) else { return nil }
         context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
         return buffer
