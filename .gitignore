@@ -19,3 +19,6 @@ xcuserdata/
 
 # Exports written at runtime
 exports/
+
+# Python
+__pycache__/

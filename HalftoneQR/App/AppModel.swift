@@ -267,8 +267,15 @@ final class AppModel {
         return plan.id == verifiedRender.plan.id
     }
 
+    /// The mark first: the centres and the structure in the neutral ink, the
+    /// mark in its own colour, and the centres hidden inside it. Previewed on
+    /// the page and pre-selected for export.
+    var focusLogo = false {
+        didSet { if focusLogo != oldValue { selectedVariant = focusLogo ? .duotone : .brand } }
+    }
+
     var currentPalette: Palette {
-        ExportVariant.Kind.brand.palette(brand: brandColour)
+        (focusLogo ? ExportVariant.Kind.duotone : .brand).palette(brand: brandColour)
     }
 
     // MARK: - Generate

@@ -38,6 +38,11 @@ enum FinderStyle: String, CaseIterable, Sendable, Identifiable {
 enum Primitive: Sendable {
     case rect(CGRect)
     case roundedRect(CGRect, radius: Double)
+    /// A rectangle with its own radius at each corner; 0 is a plain corner.
+    case roundedCorners(CGRect, topLeft: Double, topRight: Double, bottomRight: Double, bottomLeft: Double)
+    /// The square in `corner` of an empty cell, minus a quarter-disc: the
+    /// fillet that rounds the join between the two dark cells meeting there.
+    case concaveCorner(CGRect, corner: RenderPlan.Cell.Corner)
     case ellipse(CGRect)
     case polygon([CGPoint])
     /// Outer shape with a hole in it, filled even-odd.
@@ -54,6 +59,11 @@ struct Palette: Sendable, Equatable {
     var structure: RGB
     /// The cells that carry the artwork.
     var art: RGB
+    /// Draw the sampled centres beneath the artwork rather than on top, so they
+    /// only show where the artwork is absent and the mark reads as one shape.
+    /// Safe for the decoder: artwork is only ever drawn where it is dark, so a
+    /// dark centre under it is still dark.
+    var inkUnderArt: Bool = false
 
     static func monochrome(paper: RGB = .paper, ink: RGB = .ink) -> Palette {
         Palette(paper: paper, ink: ink, structure: ink, art: ink)
@@ -97,6 +107,26 @@ struct RenderPlan: Sendable, Identifiable {
         var size: Double
         var shape: CellShape
         var role: Role
+        /// How a square cell's corners are drawn.
+        var rounding: Rounding = .none
+
+        /// Square cells are drawn so that runs of them read as one shape: a
+        /// corner is rounded when the cell has no neighbour across it, and an
+        /// empty cell's corner between two dark neighbours is filled with a
+        /// fillet. Both are cells, so every animation moves them like any
+        /// other and the last frame is still the still.
+        enum Rounding: Sendable, Equatable {
+            case none
+            /// Radius at each corner as a share of the side; 0 is square.
+            case convex(topLeft: Double, topRight: Double, bottomRight: Double, bottomLeft: Double)
+            /// The cell is the small square in `corner` of an empty cell, and
+            /// is filled except for the quarter-disc that rounds the join.
+            case concave(Corner)
+        }
+
+        enum Corner: Sendable, Equatable {
+            case topLeft, topRight, bottomRight, bottomLeft
+        }
 
         enum Role: UInt8, Sendable {
             /// A free sub-module carrying the artwork.
@@ -159,17 +189,31 @@ enum PlanFlattener {
         }
 
         // Paper, then artwork, then structure, and the sampled centres last so
-        // nothing can ever paint over the modules a decoder reads.
+        // nothing can ever paint over the modules a decoder reads — unless the
+        // palette puts the centres beneath the artwork, where dark artwork over
+        // a dark centre changes nothing the decoder sees.
+        let palette = plan.palette
         var groups: [Group] = [
-            Group(colour: plan.palette.paper, primitives: [
+            Group(colour: palette.paper, primitives: [
                 .roundedRect(CGRect(x: 0, y: 0, width: plan.canvasUnits, height: plan.canvasUnits),
                              radius: plan.paperCornerRadius)
             ]),
-            Group(colour: plan.palette.art, primitives: art),
-            Group(colour: plan.palette.structure, primitives: structure),
-            Group(colour: plan.palette.paper, primitives: knockout),
-            Group(colour: plan.palette.ink, primitives: data),
         ]
+        if palette.inkUnderArt {
+            groups += [
+                Group(colour: palette.ink, primitives: data),
+                Group(colour: palette.art, primitives: art),
+                Group(colour: palette.structure, primitives: structure),
+                Group(colour: palette.paper, primitives: knockout),
+            ]
+        } else {
+            groups += [
+                Group(colour: palette.art, primitives: art),
+                Group(colour: palette.structure, primitives: structure),
+                Group(colour: palette.paper, primitives: knockout),
+                Group(colour: palette.ink, primitives: data),
+            ]
+        }
 
         if let emblem = plan.emblem {
             groups.append(Group(colour: plan.palette.paper, primitives: [
@@ -186,7 +230,15 @@ enum PlanFlattener {
                          width: cell.size, height: cell.size)
         switch cell.shape {
         case .square:
-            return .rect(box)
+            switch cell.rounding {
+            case .none:
+                return .rect(box)
+            case .convex(let topLeft, let topRight, let bottomRight, let bottomLeft):
+                return .roundedCorners(box, topLeft: topLeft * cell.size, topRight: topRight * cell.size,
+                                       bottomRight: bottomRight * cell.size, bottomLeft: bottomLeft * cell.size)
+            case .concave(let corner):
+                return .concaveCorner(box, corner: corner)
+            }
         case .dot:
             return .ellipse(box)
         case .diamond:

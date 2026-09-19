@@ -148,8 +148,8 @@ density above 0.12. Each produces a specific headline and a specific suggestion.
    pulled from the site as a fallback. Any `sample-*.png` dropped into
    `HalftoneQR/Resources/Samples/` becomes a sample.
 2. **Customise** — the same page, once the card has landed: one slider for logo
-   strength, three module shapes, three finder styles, the centre emblem and
-   the resolve order, all on glass under the card. Every change re-renders a
+   strength, three module shapes, three finder styles, the centre emblem, Focus
+   and the resolve order, all on glass under the card. Every change re-renders a
    fast preview; **Verify** proves it in place — the decoded string and the
    capture count — before Export is offered. No error-correction or mask
    controls are exposed.
@@ -188,6 +188,25 @@ writer, and the animation exporter. There is no second implementation of a
 rounded rectangle anywhere in the codebase.
 
 ---
+
+## Drawing the symbol
+
+Runs of square cells are drawn as one shape. A cell's corner is rounded where
+nothing touches it, and the notch where two cells meet at a corner is filled
+with a fillet, so the mark reads as a smooth silhouette rather than a grid of
+blocks and a lone module reads as a dot. The sampled centres are rounded where
+nothing dark touches them, and the light centres punched out of the mark are
+always rounded. Dots and diamonds stand on their own. The decisions — which
+cells are dark — are unchanged; only their outlines are, and every render is
+still verified.
+
+**Focus** puts the mark first: the sampled centres and the structure in the
+neutral ink, the mark in its own colour, and the centres drawn *beneath* the
+mark so they only show where it is absent. Colour does the separating because
+opacity cannot: `Tools/validation/focus.py` measured how light the centres can
+be drawn with the mark at full ink, and a decoder thresholds on the darkest
+thing in frame. At a barely visible tint 5 of 35 captures already fail; at a
+visible one, half do. Under the mark, a dark centre is still dark.
 
 ## Design
 
@@ -262,6 +281,7 @@ python3 roundtrip.py          # encode -> render -> decode, wide payload sweep
 python3 finetune.py           # the centre-size / strength Pareto sweep
 python3 shapes.py             # finder styles x cell shapes vs the decoder
 python3 samples.py            # renders the sample sheet and the resolve GIF
+python3 focus.py              # how light the centres can be drawn: they cannot
 ```
 
 Results at time of writing:

@@ -55,17 +55,16 @@ enum HalftonePlanner {
             CGRect(x: Double($0.x), y: Double($0.y), width: 7, height: 7)
         }
 
-        var cells: [RenderPlan.Cell] = []
-        cells.reserveCapacity(count * count * 4)
-
-        let cellSize = (1.0 / Double(subdivision)) * (1 - config.cellGap)
-        let centreSize = config.centreFraction
+        // Pass one: decide every sub-module, into a grid at that resolution.
+        // The rounding needs each cell's neighbours across module boundaries,
+        // so nothing is drawn until the whole grid is decided.
+        enum Kind: UInt8 { case outside, art, structure, centre }
+        var kind = [Kind](repeating: .outside, count: grid * grid)
+        var dark = [Bool](repeating: false, count: grid * grid)
 
         for my in 0..<count {
             for mx in 0..<count {
                 let isDark = symbol.isDark(x: mx, y: my)
-                let originX = quiet + Double(mx)
-                let originY = quiet + Double(my)
 
                 // The three finder patterns are drawn as whole marks elsewhere.
                 if finderRegions.contains(where: { $0.contains(CGPoint(x: Double(mx) + 0.5,
@@ -74,10 +73,12 @@ enum HalftonePlanner {
                 }
 
                 if symbol.isFunction(x: mx, y: my) {
-                    if isDark {
-                        cells.append(RenderPlan.Cell(
-                            centre: CGPoint(x: originX + 0.5, y: originY + 0.5),
-                            size: 1.0, shape: .square, role: .structure))
+                    for oy in 0..<subdivision {
+                        for ox in 0..<subdivision {
+                            let index = (my * subdivision + oy) * grid + mx * subdivision + ox
+                            kind[index] = .structure
+                            dark[index] = isDark
+                        }
                     }
                     continue
                 }
@@ -110,19 +111,102 @@ enum HalftonePlanner {
                     }
                 }
 
-                for (slot, offset) in neighbourOrder.enumerated() where values[slot] {
-                    cells.append(RenderPlan.Cell(
-                        centre: CGPoint(x: originX + (Double(offset.x) + 0.5) / Double(subdivision),
-                                        y: originY + (Double(offset.y) + 0.5) / Double(subdivision)),
-                        size: cellSize, shape: config.cellShape, role: .art))
+                for (slot, offset) in neighbourOrder.enumerated() {
+                    let index = (my * subdivision + offset.y) * grid + mx * subdivision + offset.x
+                    kind[index] = .art
+                    dark[index] = values[slot]
                 }
+                // The sampled centre is drawn as its own, larger cell below; in
+                // the grid it is what its neighbours round toward or join.
+                let centre = (my * subdivision + 1) * grid + mx * subdivision + 1
+                kind[centre] = .centre
+                dark[centre] = isDark
+            }
+        }
 
-                // The sampled centre goes on last and is never negotiable.
+        func filled(_ x: Int, _ y: Int) -> Bool {
+            guard x >= 0, y >= 0, x < grid, y < grid else { return false }
+            let index = y * grid + x
+            return kind[index] != .outside && dark[index]
+        }
+
+        // Pass two: the cells, each rounded by its neighbours. Runs of square
+        // cells are drawn as one shape — a corner is rounded where nothing
+        // touches it, and the notch where two cells meet at a corner is filled
+        // with a fillet — so the mark reads as a silhouette, not a grid. Dots
+        // and diamonds stand on their own.
+        var cells: [RenderPlan.Cell] = []
+        cells.reserveCapacity(count * count * 6)
+        let cellSize = (1.0 / Double(subdivision)) * (1 - config.cellGap)
+        let centreSize = config.centreFraction
+        let joins = config.cellShape == .square && config.cellGap == 0
+        let fillet = cellSize * 0.5
+
+        for fy in 0..<grid {
+            for fx in 0..<grid {
+                let index = fy * grid + fx
+                let role: RenderPlan.Cell.Role
+                switch kind[index] {
+                case .outside, .centre: continue
+                case .art: role = .art
+                case .structure: role = .structure
+                }
+                let x = quiet + (Double(fx) + 0.5) / Double(subdivision)
+                let y = quiet + (Double(fy) + 0.5) / Double(subdivision)
+                let left = filled(fx - 1, fy), right = filled(fx + 1, fy)
+                let up = filled(fx, fy - 1), down = filled(fx, fy + 1)
+
+                if dark[index] {
+                    var rounding: RenderPlan.Cell.Rounding = .none
+                    if joins {
+                        rounding = .convex(topLeft: (!left && !up) ? 0.5 : 0,
+                                           topRight: (!right && !up) ? 0.5 : 0,
+                                           bottomRight: (!right && !down) ? 0.5 : 0,
+                                           bottomLeft: (!left && !down) ? 0.5 : 0)
+                    }
+                    cells.append(RenderPlan.Cell(centre: CGPoint(x: x, y: y), size: cellSize,
+                                                 shape: config.cellShape, role: role, rounding: rounding))
+                } else if joins {
+                    let half = cellSize / 2, inset = fillet / 2
+                    let fillets: [(RenderPlan.Cell.Corner, Bool, CGPoint)] = [
+                        (.topLeft, up && left, CGPoint(x: x - half + inset, y: y - half + inset)),
+                        (.topRight, up && right, CGPoint(x: x + half - inset, y: y - half + inset)),
+                        (.bottomRight, down && right, CGPoint(x: x + half - inset, y: y + half - inset)),
+                        (.bottomLeft, down && left, CGPoint(x: x - half + inset, y: y + half - inset)),
+                    ]
+                    for (corner, needed, centre) in fillets where needed {
+                        cells.append(RenderPlan.Cell(centre: centre, size: fillet, shape: .square,
+                                                     role: role, rounding: .concave(corner)))
+                    }
+                }
+            }
+        }
+
+        // Pass three: the sampled centres. Never negotiable, and drawn as their
+        // own cells: a dark one rounded only where nothing dark touches it, a
+        // light one — punched out of the artwork — always rounded.
+        for my in 0..<count {
+            for mx in 0..<count where !symbol.isFunction(x: mx, y: my) {
+                let isDark = symbol.isDark(x: mx, y: my)
+                let shape: CellShape = config.cellShape == .diamond ? .square : config.cellShape
+                var rounding: RenderPlan.Cell.Rounding = .none
+                if shape == .square {
+                    if isDark {
+                        let fx = mx * subdivision + 1, fy = my * subdivision + 1
+                        func clear(_ dx: Int, _ dy: Int) -> Bool { !filled(fx + dx, fy + dy) }
+                        rounding = .convex(
+                            topLeft: (clear(-1, 0) && clear(0, -1) && clear(-1, -1)) ? 0.3 : 0,
+                            topRight: (clear(1, 0) && clear(0, -1) && clear(1, -1)) ? 0.3 : 0,
+                            bottomRight: (clear(1, 0) && clear(0, 1) && clear(1, 1)) ? 0.3 : 0,
+                            bottomLeft: (clear(-1, 0) && clear(0, 1) && clear(-1, 1)) ? 0.3 : 0)
+                    } else {
+                        rounding = .convex(topLeft: 0.3, topRight: 0.3, bottomRight: 0.3, bottomLeft: 0.3)
+                    }
+                }
                 cells.append(RenderPlan.Cell(
-                    centre: CGPoint(x: originX + 0.5, y: originY + 0.5),
-                    size: centreSize,
-                    shape: config.cellShape == .diamond ? .square : config.cellShape,
-                    role: isDark ? .data : .dataKnockout))
+                    centre: CGPoint(x: quiet + Double(mx) + 0.5, y: quiet + Double(my) + 0.5),
+                    size: centreSize, shape: shape,
+                    role: isDark ? .data : .dataKnockout, rounding: rounding))
             }
         }
 

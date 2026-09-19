@@ -139,6 +139,22 @@ struct EmblemGlyph: View {
     }
 }
 
+/// The "Focus" control's mark: the dots and the mark, the mark ahead when on.
+struct FocusGlyph: View {
+    let isOn: Bool
+    var colour: Color = .white
+
+    var body: some View {
+        ZStack {
+            LatticeGlyph(shape: .dot, colour: colour.opacity(isOn ? 0.35 : 0.9))
+            RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+                .fill(colour)
+                .frame(width: 11, height: 11)
+                .rotationEffect(.degrees(45))
+        }
+    }
+}
+
 /// A small mark that hints at the selected choreography.
 struct MotionGlyph: View {
     let choreography: Choreography

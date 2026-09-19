@@ -24,6 +24,11 @@ enum PathGeometry {
             return rectangle(rect)
         case .roundedRect(let rect, let radius):
             return roundedRectangle(rect, radius: radius)
+        case .roundedCorners(let rect, let topLeft, let topRight, let bottomRight, let bottomLeft):
+            return roundedCorners(rect, topLeft: topLeft, topRight: topRight,
+                                  bottomRight: bottomRight, bottomLeft: bottomLeft)
+        case .concaveCorner(let rect, let corner):
+            return concaveCorner(rect, corner: corner)
         case .ellipse(let rect):
             return ellipse(rect)
         case .polygon(let points):
@@ -72,6 +77,85 @@ enum PathGeometry {
             .curve(control1: CGPoint(x: r.minX, y: r.minY + radius - offset),
                    control2: CGPoint(x: r.minX + radius - offset, y: r.minY),
                    end: CGPoint(x: r.minX + radius, y: r.minY)),
+            .close,
+        ]
+    }
+
+    /// A rectangle with its own radius at each corner. A zero radius is a plain
+    /// corner; the rest are the same quarter circles `roundedRectangle` draws.
+    private static func roundedCorners(_ r: CGRect, topLeft: Double, topRight: Double,
+                                       bottomRight: Double, bottomLeft: Double) -> [PathCommand] {
+        let limit = min(r.width, r.height) / 2
+        func fit(_ radius: Double) -> Double { min(max(radius, 0), limit) }
+        let tl = fit(topLeft), tr = fit(topRight), br = fit(bottomRight), bl = fit(bottomLeft)
+        var commands: [PathCommand] = [.move(CGPoint(x: r.minX + tl, y: r.minY))]
+
+        commands.append(.line(CGPoint(x: r.maxX - tr, y: r.minY)))
+        if tr > 0.0001 {
+            let o = tr * kappa
+            commands.append(.curve(control1: CGPoint(x: r.maxX - tr + o, y: r.minY),
+                                   control2: CGPoint(x: r.maxX, y: r.minY + tr - o),
+                                   end: CGPoint(x: r.maxX, y: r.minY + tr)))
+        }
+        commands.append(.line(CGPoint(x: r.maxX, y: r.maxY - br)))
+        if br > 0.0001 {
+            let o = br * kappa
+            commands.append(.curve(control1: CGPoint(x: r.maxX, y: r.maxY - br + o),
+                                   control2: CGPoint(x: r.maxX - br + o, y: r.maxY),
+                                   end: CGPoint(x: r.maxX - br, y: r.maxY)))
+        }
+        commands.append(.line(CGPoint(x: r.minX + bl, y: r.maxY)))
+        if bl > 0.0001 {
+            let o = bl * kappa
+            commands.append(.curve(control1: CGPoint(x: r.minX + bl - o, y: r.maxY),
+                                   control2: CGPoint(x: r.minX, y: r.maxY - bl + o),
+                                   end: CGPoint(x: r.minX, y: r.maxY - bl)))
+        }
+        commands.append(.line(CGPoint(x: r.minX, y: r.minY + tl)))
+        if tl > 0.0001 {
+            let o = tl * kappa
+            commands.append(.curve(control1: CGPoint(x: r.minX, y: r.minY + tl - o),
+                                   control2: CGPoint(x: r.minX + tl - o, y: r.minY),
+                                   end: CGPoint(x: r.minX + tl, y: r.minY)))
+        }
+        commands.append(.close)
+        return commands
+    }
+
+    /// The square in `corner` of an empty cell, minus the quarter-disc centred
+    /// on the opposite corner: the fillet that rounds the join between the two
+    /// dark cells meeting at that corner. Traced from the junction along one
+    /// edge, round the arc, and back along the other.
+    private static func concaveCorner(_ r: CGRect, corner: RenderPlan.Cell.Corner) -> [PathCommand] {
+        let junction: CGPoint, along: CGPoint, down: CGPoint
+        switch corner {
+        case .topLeft:
+            junction = CGPoint(x: r.minX, y: r.minY)
+            along = CGPoint(x: r.maxX, y: r.minY)
+            down = CGPoint(x: r.minX, y: r.maxY)
+        case .topRight:
+            junction = CGPoint(x: r.maxX, y: r.minY)
+            along = CGPoint(x: r.minX, y: r.minY)
+            down = CGPoint(x: r.maxX, y: r.maxY)
+        case .bottomRight:
+            junction = CGPoint(x: r.maxX, y: r.maxY)
+            along = CGPoint(x: r.minX, y: r.maxY)
+            down = CGPoint(x: r.maxX, y: r.minY)
+        case .bottomLeft:
+            junction = CGPoint(x: r.minX, y: r.maxY)
+            along = CGPoint(x: r.maxX, y: r.maxY)
+            down = CGPoint(x: r.minX, y: r.minY)
+        }
+        // The quarter circle's control points pull each end back toward the
+        // junction by the usual amount.
+        return [
+            .move(junction),
+            .line(along),
+            .curve(control1: CGPoint(x: along.x + (junction.x - along.x) * kappa,
+                                     y: along.y + (junction.y - along.y) * kappa),
+                   control2: CGPoint(x: down.x + (junction.x - down.x) * kappa,
+                                     y: down.y + (junction.y - down.y) * kappa),
+                   end: down),
             .close,
         ]
     }

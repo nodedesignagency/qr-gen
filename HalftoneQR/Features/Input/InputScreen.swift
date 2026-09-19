@@ -416,6 +416,15 @@ struct InputScreen: View {
                     EmblemGlyph(isOn: model.config.showsEmblem)
                 }
 
+                GlassControl(label: "Focus",
+                             isSelected: model.focusLogo,
+                             isEnabled: model.silhouette != nil) {
+                    model.focusLogo.toggle()
+                    model.schedulePreview(debounce: .zero)
+                } glyph: {
+                    FocusGlyph(isOn: model.focusLogo)
+                }
+
                 GlassControl(label: "Motion") {
                     model.choreography = model.choreography.next
                     model.replayResolve()

@@ -39,8 +39,12 @@ struct ExportVariant: Identifiable, Sendable {
                 let readable = DominantColour.readableInk(brand, onPaper: field, minimumRatio: 4.5)
                 return Palette(paper: field, ink: .paper, structure: readable, art: .paper)
             case .duotone:
+                // The mark first: the centres and the structure in the neutral
+                // ink, the mark in its own colour, and the centres beneath the
+                // mark so it reads as one shape. Colour does the separating;
+                // opacity cannot — see Tools/validation/focus.py.
                 let readable = DominantColour.readableInk(brand, onPaper: .paper)
-                return Palette(paper: .paper, ink: .ink, structure: .ink, art: readable)
+                return Palette(paper: .paper, ink: .ink, structure: .ink, art: readable, inkUnderArt: true)
             }
         }
     }
